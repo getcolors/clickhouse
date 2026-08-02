@@ -37,3 +37,32 @@ proves every OpenTofu state has no remaining drift.
 After create, browse `http://metabase.<domain>:3000` and run dbt from
 `.colors/<profile>/clickhouse-dbt/` through `uv run dbt ...`. Both require the
 managed WireGuard interface.
+
+## Metabase from a computer outside WireGuard
+
+Use an SSH local port forward through a host that is connected to this
+deployment's WireGuard network and can resolve its private DNS:
+
+```sh
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -L 3000:metabase.<domain>:3000 \
+  ubuntu@<WIREGUARD_JUMPHOST>
+```
+
+Keep that command running and open `http://localhost:3000` in the browser. The
+jump host, rather than the computer running the browser, resolves
+`metabase.<domain>` and opens the private WireGuard connection.
+
+If local port 3000 is already occupied, choose another local port while keeping
+the remote port unchanged:
+
+```sh
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -L 3300:metabase.<domain>:3000 \
+  ubuntu@<WIREGUARD_JUMPHOST>
+```
+
+Then open `http://localhost:3300`. Do not publish Metabase or weaken the
+firewall as an alternative to this tunnel.
