@@ -1,0 +1,89 @@
+{
+  "all" : {
+    "children" : {
+      "managed" : {
+        "hosts" : {
+          "clickhouse-fixture-node-1" : {
+            "ansible_host" : "192.0.2.11",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.11",
+            "vpn_ip" : "10.21.0.1",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 1
+          },
+          "clickhouse-fixture-node-2" : {
+            "ansible_host" : "192.0.2.12",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.12",
+            "vpn_ip" : "10.21.0.2",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 2
+          },
+          "clickhouse-fixture-node-3" : {
+            "ansible_host" : "192.0.2.13",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.13",
+            "vpn_ip" : "10.21.0.3",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 3
+          },
+          "clickhouse-fixture-metabase" : {
+            "ansible_host" : "192.0.2.20",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.20",
+            "vpn_ip" : "10.21.0.10",
+            "server_role" : "metabase",
+            "server_ordinal" : 10
+          }
+        }
+      },
+      "clickhouse" : {
+        "hosts" : {
+          "clickhouse-fixture-node-1" : {
+            "ansible_host" : "192.0.2.11",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.11",
+            "vpn_ip" : "10.21.0.1",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 1
+          },
+          "clickhouse-fixture-node-2" : {
+            "ansible_host" : "192.0.2.12",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.12",
+            "vpn_ip" : "10.21.0.2",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 2
+          },
+          "clickhouse-fixture-node-3" : {
+            "ansible_host" : "192.0.2.13",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.13",
+            "vpn_ip" : "10.21.0.3",
+            "server_role" : "clickhouse",
+            "server_ordinal" : 3
+          }
+        }
+      },
+      "metabase" : {
+        "hosts" : {
+          "clickhouse-fixture-metabase" : {
+            "ansible_host" : "192.0.2.20",
+            "ansible_user" : "root",
+            "private_ip" : "10.20.1.20",
+            "vpn_ip" : "10.21.0.10",
+            "server_role" : "metabase",
+            "server_ordinal" : 10
+          }
+        }
+      },
+      "local" : {
+        "hosts" : {
+          "localhost" : {
+            "ansible_connection" : "local"
+          }
+        }
+      }
+    }
+  }
+}

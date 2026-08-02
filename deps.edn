@@ -1,0 +1,13 @@
+{:paths ["src/clj" "src/resources"]
+ :deps {org.clojure/clojure       {:mvn/version "1.12.5"}
+        io.github.getcolors/green {:git/url "https://github.com/getcolors/green.git"
+                                   :git/sha "f7c7513611d9b891ac335ea405af51b6dafa010c"}
+        io.github.getcolors/once  {:git/url "https://github.com/getcolors/once.git"
+                                   :git/sha "eb9cf45078ede126961379999d0adcae871e5b4d"
+                                   :deps/root "green"}}
+ :aliases {:dev {:extra-paths ["test/clj" "test/resources"]}
+           :test {:extra-paths ["test/clj" "test/resources"]
+                  :extra-deps {io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                  :main-opts ["-m" "cognitect.test-runner"]
+                  :exec-fn cognitect.test-runner.api/test}}}

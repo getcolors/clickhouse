@@ -1,0 +1,13 @@
+.*
+!.gitignore
+!.github
+!.envrc
+!.envrc.private.example
+!.clj-kondo
+!.lsp
+
+.colors/
+target/
+node_modules/
+.clj-kondo/.cache/
+.lsp/.cache/

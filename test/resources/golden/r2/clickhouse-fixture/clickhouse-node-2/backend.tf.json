@@ -1,0 +1,19 @@
+{
+  "terraform" : {
+    "backend" : {
+      "s3" : {
+        "bucket" : "fixture",
+        "endpoints" : {
+          "s3" : "https://fixture.r2.cloudflarestorage.com"
+        },
+        "key" : "clickhouse-fixture/clickhouse-node-2.tfstate",
+        "region" : "auto",
+        "skip_credentials_validation" : true,
+        "skip_metadata_api_check" : true,
+        "skip_region_validation" : true,
+        "skip_requesting_account_id" : true,
+        "use_path_style" : false
+      }
+    }
+  }
+}

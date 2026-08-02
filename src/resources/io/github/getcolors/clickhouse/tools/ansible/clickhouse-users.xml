@@ -1,0 +1,24 @@
+<clickhouse>
+  <profiles>
+    <metabase><readonly>2</readonly></metabase>
+    <dbt><readonly>0</readonly></dbt>
+  </profiles>
+  <users>
+    <default><networks><ip>127.0.0.1</ip></networks></default>
+    <admin>
+      <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password>
+      <networks><ip>127.0.0.1</ip><ip>::1</ip><ip>10.20.0.0/16</ip><ip>10.21.0.0/24</ip></networks>
+      <profile>default</profile><quota>default</quota><access_management>1</access_management>
+    </admin>
+    <<{ clickhouse-metabase-user }>>
+      <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_METABASE_PASSWORD') }}</password>
+      <networks><ip>10.21.0.0/24</ip></networks>
+      <profile>metabase</profile><quota>default</quota>
+    </<{ clickhouse-metabase-user }>>
+    <<{ clickhouse-dbt-user }>>
+      <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_DBT_PASSWORD') }}</password>
+      <networks><ip>10.21.0.0/24</ip></networks>
+      <profile>dbt</profile><quota>default</quota>
+    </<{ clickhouse-dbt-user }>>
+  </users>
+</clickhouse>

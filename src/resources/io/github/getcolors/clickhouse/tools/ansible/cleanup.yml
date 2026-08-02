@@ -1,0 +1,16 @@
+---
+- name: Disconnect local WireGuard before destroying servers
+  hosts: local
+  become: true
+  tasks:
+    - name: Bring down the managed interface when present
+      ansible.builtin.command: wg-quick down wg-clickhouse
+      environment:
+        PATH: "{{ lookup('env','PATH') }}"
+      register: wg_down
+      failed_when: false
+      changed_when: wg_down.rc == 0
+    - name: Remove managed WireGuard configuration
+      ansible.builtin.file:
+        path: /etc/wireguard/wg-clickhouse.conf
+        state: absent

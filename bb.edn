@@ -1,0 +1,16 @@
+{:paths ["test/clj" "test/resources"]
+ :deps {io.github.getcolors/clickhouse {:local/root "."}}
+ :tasks
+ {test {:doc "Run the Babashka unit suite"
+        :requires ([clojure.test :as t]
+                   [io.github.getcolors.clickhouse.validate-test]
+                   [io.github.getcolors.clickhouse.tools-test]
+                   [io.github.getcolors.clickhouse.workflow-test])
+        :task (let [{:keys [fail error]}
+                    (t/run-tests 'io.github.getcolors.clickhouse.validate-test
+                                 'io.github.getcolors.clickhouse.tools-test
+                                 'io.github.getcolors.clickhouse.workflow-test)]
+                (System/exit (if (pos? (+ fail error)) 1 0)))}
+  golden {:task (shell "./scripts/golden.sh")}
+  golden:accept {:task (shell "./scripts/golden.sh" "--accept")}
+  pin {:task (load-file "tasks/pin.clj")}}}
