@@ -7,7 +7,9 @@ ClickHouse/Keeper nodes and one Metabase server on Hetzner, plus Cloudflare
 DNS-only WireGuard names and a local dbt sample project. The first consumer is
 `../clickhouse-hetzner`.
 
-Read `plans/0001-clickhouse-v1.md` for decisions; code and tests are authoritative.
+Read `plans/0001-clickhouse-v1.md` and
+`plans/0002-parallel-convergent-workflow.md` for decisions; code and tests are
+authoritative.
 
 ## Commands
 
@@ -32,7 +34,8 @@ promises this internal surface; golden tests assert the reused resource address.
 ## Safety
 
 Credentials use `COLORS_PAR_*` and never render. `COLORS_PAR_PROFILE` is
-refused. WireGuard private keys are generated and retained on their own hosts.
+refused. SSH and WireGuard private keys are generated and retained in gitignored
+local state or on their own hosts; `.colors/` is therefore sensitive.
 Public ingress is SSH and WireGuard UDP only. ClickHouse, Keeper, and Metabase
 ports must remain closed publicly.
 

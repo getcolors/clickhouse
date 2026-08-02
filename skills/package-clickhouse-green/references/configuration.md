@@ -17,7 +17,9 @@ the shared private subnet.
 - `metabase.<domain>` -> `10.21.0.10`
 
 Cloudflare proxying is disabled because those addresses are reachable only over
-WireGuard.
+WireGuard. After the shared network and managed SSH access stage, all four
+servers provision concurrently. ClickHouse and Metabase configuration also
+converge concurrently.
 
 ## Credentials
 
@@ -41,6 +43,10 @@ stable. Never export `COLORS_PAR_PROFILE`.
 
 ## State
 
-R2 state keys are `<profile>/<stage>.tfstate` for network, four servers,
-firewall, DNS, and related stages. `.colors/` contains rendered artifacts and
-local dbt state; it is generated and must not be committed.
+R2 state keys are `<profile>/<stage>.tfstate` for network, managed SSH public
+access, four servers, firewall, DNS, and related stages. `.colors/` contains
+rendered artifacts, local dbt state, and retained local SSH/WireGuard private
+state. It is generated, sensitive, and must never be edited or committed.
+
+A successful real create finishes with application acceptance and zero-change
+OpenTofu plans for every state.

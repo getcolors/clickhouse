@@ -1,0 +1,168 @@
+---
+- name: Create the workstation WireGuard identity
+  hosts: local
+  gather_facts: false
+  become: false
+  vars:
+    wg_state_dir: "{{ lookup('env', 'HOME') }}/.local/state/clickhouse/clickhouse-fixture"
+  tasks:
+    - name: Create private local state directory
+      ansible.builtin.file:
+        path: "{{ wg_state_dir }}"
+        state: directory
+        mode: "0700"
+    - name: Generate the retained local private key
+      ansible.builtin.shell: |
+        set -o pipefail
+        umask 077
+        wg genkey > "{{ wg_state_dir }}/private.key"
+      args:
+        executable: /bin/bash
+        creates: "{{ wg_state_dir }}/private.key"
+      no_log: true
+    - name: Derive the local public key
+      ansible.builtin.shell: wg pubkey < "{{ wg_state_dir }}/private.key" > "{{ wg_state_dir }}/public.key"
+      args:
+        creates: "{{ wg_state_dir }}/public.key"
+      no_log: true
+
+- name: Create retained WireGuard identities on every server
+  hosts: managed
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Wait for SSH and cloud-init after parallel provisioning
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 10
+        delay: 5
+        sleep: 5
+        timeout: 600
+  tasks:
+    - name: Install WireGuard
+      ansible.builtin.apt:
+        name: wireguard-tools
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Create WireGuard directory
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        mode: "0700"
+    - name: Generate retained server private key
+      ansible.builtin.shell: |
+        set -o pipefail
+        umask 077
+        wg genkey > /etc/wireguard/private.key
+      args:
+        executable: /bin/bash
+        creates: /etc/wireguard/private.key
+      no_log: true
+    - name: Derive server public key
+      ansible.builtin.shell: wg pubkey < /etc/wireguard/private.key
+      register: wg_public_key
+      changed_when: false
+    - name: Read server private key for its own configuration
+      ansible.builtin.slurp:
+        src: /etc/wireguard/private.key
+      register: wg_private_key
+      no_log: true
+
+- name: Configure the server WireGuard mesh
+  hosts: managed
+  become: true
+  vars:
+    local_public_key: "{{ lookup('file', lookup('env', 'HOME') + '/.local/state/clickhouse/clickhouse-fixture/public.key') }}"
+  tasks:
+    - name: Write server WireGuard configuration
+      ansible.builtin.copy:
+        dest: /etc/wireguard/wg-clickhouse.conf
+        mode: "0600"
+        content: |
+          [Interface]
+          Address = {{ vpn_ip }}/24
+          ListenPort = 51820
+          PrivateKey = {{ wg_private_key.content | b64decode | trim }}
+
+          [Peer]
+          PublicKey = {{ local_public_key }}
+          AllowedIPs = 10.21.0.254/32
+          PersistentKeepalive = 25
+          {% if server_role == 'clickhouse' %}
+
+          [Peer]
+          PublicKey = {{ hostvars[groups['metabase'][0]].wg_public_key.stdout }}
+          AllowedIPs = 10.21.0.10/32
+          Endpoint = {{ hostvars[groups['metabase'][0]].private_ip }}:51820
+          PersistentKeepalive = 25
+          {% else %}
+          {% for host in groups['clickhouse'] %}
+
+          [Peer]
+          PublicKey = {{ hostvars[host].wg_public_key.stdout }}
+          AllowedIPs = {{ hostvars[host].vpn_ip }}/32
+          Endpoint = {{ hostvars[host].private_ip }}:51820
+          PersistentKeepalive = 25
+          {% endfor %}
+          {% endif %}
+      no_log: true
+      notify: Restart server WireGuard
+    - name: Enable server WireGuard
+      ansible.builtin.systemd_service:
+        name: wg-quick@wg-clickhouse
+        enabled: true
+        state: started
+  handlers:
+    - name: Restart server WireGuard
+      ansible.builtin.systemd_service:
+        name: wg-quick@wg-clickhouse
+        state: restarted
+
+- name: Connect the workstation to every server
+  hosts: local
+  gather_facts: false
+  become: true
+  vars:
+    wg_state_dir: "{{ lookup('env', 'HOME') }}/.local/state/clickhouse/clickhouse-fixture"
+  tasks:
+    - name: Read retained local private key
+      ansible.builtin.slurp:
+        src: "{{ wg_state_dir }}/private.key"
+      register: local_wg_private
+      become: false
+      no_log: true
+    - name: Create local WireGuard directory
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        mode: "0700"
+    - name: Write local WireGuard configuration
+      ansible.builtin.copy:
+        dest: /etc/wireguard/wg-clickhouse.conf
+        mode: "0600"
+        content: |
+          [Interface]
+          Address = 10.21.0.254/32
+          PrivateKey = {{ local_wg_private.content | b64decode | trim }}
+          {% for host in groups['managed'] %}
+
+          [Peer]
+          PublicKey = {{ hostvars[host].wg_public_key.stdout }}
+          AllowedIPs = {{ hostvars[host].vpn_ip }}/32
+          Endpoint = {{ hostvars[host].ansible_host }}:51820
+          PersistentKeepalive = 25
+          {% endfor %}
+      no_log: true
+    - name: Reconnect managed WireGuard interface
+      ansible.builtin.shell: |
+        wg-quick down wg-clickhouse 2>/dev/null || true
+        wg-quick up wg-clickhouse
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ lookup('env','PATH') }}"
+      changed_when: true
+    - name: Verify every VPN address
+      ansible.builtin.command: "ping -c 1 -W 3 {{ hostvars[item].vpn_ip }}"
+      loop: "{{ groups['managed'] }}"
+      changed_when: false

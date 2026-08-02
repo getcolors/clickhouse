@@ -17,7 +17,7 @@ resource "hcloud_server" "node1" {
   image       = "ubuntu-24.04"
   server_type = "cx33"
   location    = "nbg1"
-  ssh_keys    = ["fixture-key"]
+  ssh_keys    = ["fixture-managed"]
   public_net {
     ipv4_enabled = true
     ipv6_enabled = false

@@ -32,30 +32,47 @@
        (assoc opts :green/exit 2 :green/err (str/join "\n" errors))
        (assoc opts :green/exit 0)))))
 
+(defn pass-step [opts] (assoc opts :green/exit 0))
+
 (defn wire-fn [step run-opts]
   (if (= :delete (:green/event run-opts))
     (case step
       :clickhouse/start [start-step :clickhouse/dbt]
-      :clickhouse/dbt [tools/dbt-step :clickhouse/ansible]
-      :clickhouse/ansible [tools/ansible-step :clickhouse/dns]
-      :clickhouse/dns [tools/dns-step :clickhouse/firewall]
-      :clickhouse/firewall [tools/firewall-step :clickhouse/metabase]
-      :clickhouse/metabase [tools/metabase-step :clickhouse/node-3]
-      :clickhouse/node-3 [tools/node-3-step :clickhouse/node-2]
-      :clickhouse/node-2 [tools/node-2-step :clickhouse/node-1]
-      :clickhouse/node-1 [tools/node-1-step :clickhouse/network]
+      :clickhouse/dbt [tools/dbt-step :clickhouse/acceptance]
+      :clickhouse/acceptance [tools/acceptance-step :clickhouse/ansible-cleanup]
+      :clickhouse/ansible-cleanup [tools/ansible-cleanup-step
+                                   :clickhouse/dns :clickhouse/firewall]
+      :clickhouse/dns [tools/dns-step :clickhouse/infrastructure-clean]
+      :clickhouse/firewall [tools/firewall-step :clickhouse/infrastructure-clean]
+      :clickhouse/infrastructure-clean [pass-step
+                                        :clickhouse/node-1 :clickhouse/node-2
+                                        :clickhouse/node-3 :clickhouse/metabase]
+      :clickhouse/node-1 [tools/node-1-step :clickhouse/access]
+      :clickhouse/node-2 [tools/node-2-step :clickhouse/access]
+      :clickhouse/node-3 [tools/node-3-step :clickhouse/access]
+      :clickhouse/metabase [tools/metabase-step :clickhouse/access]
+      :clickhouse/access [tools/access-step :clickhouse/network]
       :clickhouse/network [tools/network-step])
     (case step
       :clickhouse/start [start-step :clickhouse/network]
-      :clickhouse/network [tools/network-step :clickhouse/node-1]
-      :clickhouse/node-1 [tools/node-1-step :clickhouse/node-2]
-      :clickhouse/node-2 [tools/node-2-step :clickhouse/node-3]
-      :clickhouse/node-3 [tools/node-3-step :clickhouse/metabase]
+      :clickhouse/network [tools/network-step :clickhouse/access]
+      :clickhouse/access [tools/access-step
+                          :clickhouse/node-1 :clickhouse/node-2
+                          :clickhouse/node-3 :clickhouse/metabase]
+      :clickhouse/node-1 [tools/node-1-step :clickhouse/firewall]
+      :clickhouse/node-2 [tools/node-2-step :clickhouse/firewall]
+      :clickhouse/node-3 [tools/node-3-step :clickhouse/firewall]
       :clickhouse/metabase [tools/metabase-step :clickhouse/firewall]
       :clickhouse/firewall [tools/firewall-step :clickhouse/dns]
-      :clickhouse/dns [tools/dns-step :clickhouse/ansible]
-      :clickhouse/ansible [tools/ansible-step :clickhouse/dbt]
-      :clickhouse/dbt [tools/dbt-step])))
+      :clickhouse/dns [tools/dns-step :clickhouse/ansible-render]
+      :clickhouse/ansible-render [tools/ansible-render-step :clickhouse/wireguard]
+      :clickhouse/wireguard [tools/wireguard-step
+                             :clickhouse/clickhouse-config :clickhouse/metabase-config]
+      :clickhouse/clickhouse-config [tools/clickhouse-config-step :clickhouse/dbt]
+      :clickhouse/metabase-config [tools/metabase-config-step :clickhouse/dbt]
+      :clickhouse/dbt [tools/dbt-step :clickhouse/acceptance]
+      :clickhouse/acceptance [tools/acceptance-step :clickhouse/drift]
+      :clickhouse/drift [tools/drift-step])))
 
 (defn backend-advice [tool]
   (let [dir-fn #(tools/tool-dir % tool)
@@ -70,9 +87,11 @@
                                                        :key (state-key %)
                                                        :endpoint (:r2-endpoint %)))})))
 
-(def side-effecting [:clickhouse/network :clickhouse/node-1 :clickhouse/node-2
-                     :clickhouse/node-3 :clickhouse/metabase :clickhouse/firewall :clickhouse/dns
-                     :clickhouse/ansible :clickhouse/dbt])
+(def side-effecting [:clickhouse/network :clickhouse/access :clickhouse/node-1 :clickhouse/node-2
+                     :clickhouse/node-3 :clickhouse/metabase :clickhouse/firewall
+                     :clickhouse/dns :clickhouse/wireguard :clickhouse/clickhouse-config
+                     :clickhouse/metabase-config :clickhouse/ansible-cleanup :clickhouse/dbt
+                     :clickhouse/acceptance :clickhouse/drift])
 (def workflow
   (reduce (fn [w tool]
             (wf/advice-add w (keyword "clickhouse" (subs tool (count "clickhouse-")))

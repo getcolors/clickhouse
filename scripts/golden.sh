@@ -26,7 +26,7 @@ build r2 COLORS_PAR_PROVIDER_BACKEND=r2
 
 profile=clickhouse-fixture
 base="$tmp/local/$profile"
-for tool in clickhouse-network clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-metabase clickhouse-firewall clickhouse-dns; do
+for tool in clickhouse-network clickhouse-access clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-metabase clickhouse-firewall clickhouse-dns clickhouse-ansible clickhouse-dbt clickhouse-acceptance; do
   [ -d "$base/$tool" ] || { echo "missing stage $tool" >&2; exit 1; }
 done
 for tool in clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-metabase; do
@@ -43,7 +43,16 @@ dns="$base/clickhouse-dns/main.tf"
 grep -q 'proxied   = false' "$dns"
 grep -q 'metabase.fixture.example' "$dns"
 grep -q 'clickhouse.fixture.example' "$dns"
-remote="$base/clickhouse-ansible/main.yml"
+grep -q 'resource "hcloud_ssh_key" "managed"' "$base/clickhouse-access/main.tf"
+grep -q 'fixture-managed' "$base/clickhouse-node-1/main.tf"
+for playbook in wireguard.yml clickhouse.yml metabase.yml cleanup.yml; do
+  [ -f "$base/clickhouse-ansible/$playbook" ] || { echo "missing split playbook $playbook" >&2; exit 1; }
+done
+grep -q 'clusterAllReplicas' "$base/clickhouse-acceptance/acceptance.py"
+grep -q 'private service is publicly reachable' "$base/clickhouse-acceptance/acceptance.py"
+if find "$tmp" -type f -path '*/.private/*' | grep -q .; then
+  echo 'build generated a private key' >&2; exit 1
+fi
 for secret in COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD COLORS_PAR_CLICKHOUSE_METABASE_PASSWORD COLORS_PAR_CLICKHOUSE_DBT_PASSWORD COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET COLORS_PAR_METABASE_ADMIN_PASSWORD COLORS_PAR_METABASE_DB_PASSWORD COLORS_PAR_METABASE_ENCRYPTION_SECRET_KEY; do
   grep -Rq "$secret" "$base/clickhouse-ansible" || { echo "missing runtime lookup for $secret" >&2; exit 1; }
 done

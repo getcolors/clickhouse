@@ -12,7 +12,8 @@ desired state or running a real lifecycle operation.
 The package creates three ClickHouse/Keeper nodes and one Metabase/Postgres
 server. Cloudflare names resolve to WireGuard addresses. ClickHouse and Metabase
 service ports are never public. Local dbt seeds and tests a replicated sample
-model and then registers ClickHouse in Metabase.
+model, registers ClickHouse in Metabase, runs end-to-end acceptance checks, and
+proves every OpenTofu state has no remaining drift.
 
 ## Safety
 
@@ -21,8 +22,8 @@ model and then registers ClickHouse in Metabase.
 - Never edit or commit `.colors/`.
 - Keep `compute-prevent-destroy: true`; override it for one authorized delete.
 - Run `build` and `create --dry-run` before a real lifecycle operation.
-- WireGuard private keys are generated automatically and must not be copied into
-  desired state or generated output.
+- Deployment SSH and WireGuard private keys are generated automatically and
+  retained only in gitignored local or host state. Never copy or commit them.
 
 ## Commands
 
