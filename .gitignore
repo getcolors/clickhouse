@@ -1,5 +1,6 @@
 .*
 !.gitignore
+!.nojekyll
 !.github
 !.envrc
 !.envrc.private.example
