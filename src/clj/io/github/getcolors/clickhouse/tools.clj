@@ -60,7 +60,6 @@
            :server-id (name id) :server-role role :server-ordinal ordinal
            :vpn-ip vpn-ip :private-ip private-ip
            :network-name (str base "-network")
-           :firewall-name (str base "-firewall")
            :hcloud-name (str base "-" (name id))
            :hcloud-server-type (if (= id :metabase)
                                  (:metabase-hcloud-server-type opts)

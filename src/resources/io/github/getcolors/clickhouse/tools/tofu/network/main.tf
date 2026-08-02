@@ -25,30 +25,3 @@ resource "hcloud_network_subnet" "cluster" {
   ip_range     = "<{ hcloud-subnet-cidr }>"
 }
 
-resource "hcloud_firewall" "cluster" {
-  name = "<{ hcloud-name }>-firewall"
-
-  rule {
-    direction  = "in"
-    protocol   = "icmp"
-    source_ips = ["0.0.0.0/0", "::/0"]
-  }
-
-  rule {
-    direction  = "in"
-    protocol   = "tcp"
-    port       = "22"
-    source_ips = ["0.0.0.0/0", "::/0"]
-  }
-
-  rule {
-    direction  = "in"
-    protocol   = "udp"
-    port       = "<{ wireguard-port }>"
-    source_ips = ["0.0.0.0/0", "::/0"]
-  }
-
-  lifecycle {
-    prevent_destroy = <{ compute-prevent-destroy }>
-  }
-}

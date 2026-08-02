@@ -35,7 +35,7 @@ for tool in clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-met
 done
 grep -q 'data.hcloud_server.node_1.id' "$base/clickhouse-firewall/main.tf"
 grep -q 'data.hcloud_server.metabase.id' "$base/clickhouse-firewall/main.tf"
-firewall="$base/clickhouse-network/main.tf"
+firewall="$base/clickhouse-firewall/main.tf"
 if grep -Eq 'port[[:space:]]*=[[:space:]]*"(8123|9000|3000|9181|9234)"' "$firewall"; then
   echo 'public firewall exposes a private service port' >&2; exit 1
 fi
