@@ -1,3 +1,11 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="A private replicated ClickHouse data stack, as a green Package Skill."><title>clickhouse — Package Skill</title><style>:root{color-scheme:light dark;font:17px/1.6 system-ui,sans-serif}body{max-width:760px;margin:auto;padding:3rem 1.25rem}h1{font-size:clamp(2.5rem,8vw,5rem);margin:.2em 0}a{color:#36a269}code,pre{font-family:ui-monospace,monospace}pre{padding:1rem;overflow:auto;background:#8882;border-radius:.6rem}.tag{font-weight:700;color:#36a269}</style></head><body><main><p class="tag">GREEN PACKAGE SKILL</p><h1>clickhouse</h1><p>Provision a private Hetzner data stack with three replicated ClickHouse and Keeper nodes, Metabase with PostgreSQL metadata, WireGuard-only access, Cloudflare DNS-only names, and a pinned local dbt sample project.</p><h2>Safe inspection</h2><pre><code>./green build
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="A private replicated ClickHouse data stack, as a green Package Skill."><title>clickhouse — Package Skill</title>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-4VKP1WY4QJ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-4VKP1WY4QJ', { page_title: 'clickhouse — Package Skill' });
+</script>
+<style>:root{color-scheme:light dark;font:17px/1.6 system-ui,sans-serif}body{max-width:760px;margin:auto;padding:3rem 1.25rem}h1{font-size:clamp(2.5rem,8vw,5rem);margin:.2em 0}a{color:#36a269}code,pre{font-family:ui-monospace,monospace}pre{padding:1rem;overflow:auto;background:#8882;border-radius:.6rem}.tag{font-weight:700;color:#36a269}</style></head><body><main><p class="tag">GREEN PACKAGE SKILL</p><h1>clickhouse</h1><p>Provision a private Hetzner data stack with three replicated ClickHouse and Keeper nodes, Metabase with PostgreSQL metadata, WireGuard-only access, Cloudflare DNS-only names, and a pinned local dbt sample project.</p><h2>Safe inspection</h2><pre><code>./green build
 ./green create --dry-run</code></pre><p>Public ingress is limited to SSH and WireGuard. Database and dashboard ports must remain private. Credentials use <code>COLORS_PAR_*</code> and are never rendered.</p><p><a href="https://github.com/getcolors/clickhouse">Source and documentation on GitHub</a></p></main></body></html>
