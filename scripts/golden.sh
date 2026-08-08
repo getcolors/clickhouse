@@ -56,7 +56,7 @@ fi
 for secret in COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD COLORS_PAR_CLICKHOUSE_METABASE_PASSWORD COLORS_PAR_CLICKHOUSE_DBT_PASSWORD COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET COLORS_PAR_METABASE_ADMIN_PASSWORD COLORS_PAR_METABASE_DB_PASSWORD COLORS_PAR_METABASE_ENCRYPTION_SECRET_KEY; do
   grep -Rq "$secret" "$base/clickhouse-ansible" || { echo "missing runtime lookup for $secret" >&2; exit 1; }
 done
-if grep -rEq 'REPLACE_ME|github_pat_|ghp_' "$tmp"; then
+if grep -rEq 'client-key-data|client-certificate-data|BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|REPLACE_ME|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_' "$tmp"; then
   echo 'credential-shaped value rendered' >&2; exit 1
 fi
 
