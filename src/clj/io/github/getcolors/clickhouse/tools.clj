@@ -6,6 +6,8 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [green.ansible :as ansible]
+            [green.cli :as green-cli]
+            [green.providers :as provider-ops]
             [green.scaffold :as sc]
             [green.tofu :as tofu]
             [green.workflow :as wf]
@@ -25,25 +27,17 @@
 
 (def root "io.github.getcolors.clickhouse.tools")
 (def once-root "io.github.getcolors.once.tools")
-(def raw-template :io.github.getcolors.clickhouse/raw)
-(def template-opts {:tag-open \< :tag-close \> :filter-open \{ :filter-close \}})
+(def template-opts sc/preserve-jinja-delimiters)
 (defn tool-dir [opts tool]
-  (let [workdir (io/file (or (:workdir opts) ".colors"))
-        state-dir (when-not (.isAbsolute workdir)
-                    (some-> (:green/state-file opts) io/file .getAbsoluteFile .getParent))
-        root-dir (if state-dir (io/file state-dir workdir) workdir)]
-    (str (io/file root-dir (or (:profile opts) "clickhouse") tool))))
+  (green-cli/stage-dir opts tool {:default-profile "clickhouse"}))
 (defn template [path file] (keyword (str root "." path) file))
 (defn once-template [provider] (keyword (str once-root ".tofu." provider) "main.tf"))
 (defn spec [template target data] {:template template :target target :data data :opts template-opts})
-(defn raw-spec [target content] (spec raw-template target {:content content}))
+(defn raw-spec [target content] (sc/content-spec target content))
 
 (defn credential-env [opts & slots]
-  (not-empty
-   (into {} (keep (fn [[k env-var]]
-                    (when-let [v (not-empty (str (get opts k)))] [env-var v])))
-         (apply merge (map #(validate/tofu-env opts %)
-                           (conj (vec slots) :provider-backend))))))
+  (provider-ops/tool-env validate/providers opts
+                         (conj (vec slots) :provider-backend)))
 
 (defn tofu-step [opts tool specs slots]
   (tofu/tofu-with-spec opts specs {:dir (tool-dir opts tool)

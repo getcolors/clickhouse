@@ -3,6 +3,7 @@
   (:require [clojure.string :as str]
             [green.cli :as green-cli]
             [green.dry-run :as dry-run]
+            [green.lifecycle :as lifecycle]
             [green.progress :as progress]
             [green.tofu :as tofu]
             [green.workflow :as wf]
@@ -17,20 +18,18 @@
 (defn start-step
   ([opts] (start-step opts (System/getenv)))
   ([opts env]
-   (let [opts (green-cli/read-pars (merge defaults opts) env)
-         event (:green/event opts) real? (not (:green/dry-run opts))
-         errors (vec (concat (validate/env-errors env)
-                             (validate/state-errors opts)
-                             (when (and real? (lifecycle-events event))
-                               (validate/secret-errors opts))
-                             (when (and real? (= :delete event)
-                                        (:compute-prevent-destroy opts))
-                               [(str "compute destruction is protected; set "
-                                     (green-cli/par-name :compute-prevent-destroy)
-                                     "=false to delete")])))]
-     (if (seq errors)
-       (assoc opts :green/exit 2 :green/err (str/join "\n" errors))
-       (assoc opts :green/exit 0)))))
+   (lifecycle/preflight
+    opts {:defaults defaults :overlay green-cli/read-pars
+          :validators
+          [(fn [_ env _] (validate/env-errors env))
+           (fn [opts _ _] (validate/state-errors opts))
+           (fn [opts _ {:keys [event real?]}]
+             (when (and real? (lifecycle-events event)) (validate/secret-errors opts)))
+           (fn [opts _ {:keys [event real?]}]
+             (when (and real? (= :delete event) (:compute-prevent-destroy opts))
+               [(str "compute destruction is protected; set "
+                     (green-cli/par-name :compute-prevent-destroy) "=false to delete")]))]}
+    env)))
 
 (defn pass-step [opts] (assoc opts :green/exit 0))
 
@@ -75,17 +74,9 @@
       :clickhouse/drift [tools/drift-step])))
 
 (defn backend-advice [tool]
-  (let [dir-fn #(tools/tool-dir % tool)
-        state-key #(str (:profile %) "/" tool ".tfstate")]
-    (tofu/backends
-     #(or (:provider-backend %) "local")
-     {"local" (tofu/local-backend-advice dir-fn)
-      "s3" (tofu/s3-backend-advice dir-fn #(hash-map :bucket (:s3-bucket %)
-                                                       :key (state-key %)
-                                                       :region (:s3-region %)))
-      "r2" (tofu/r2-backend-advice dir-fn #(hash-map :bucket (:r2-bucket %)
-                                                       :key (state-key %)
-                                                       :endpoint (:r2-endpoint %)))})))
+  (tofu/conventional-backend-advice
+   {:dir-fn #(tools/tool-dir % tool)
+    :key-fn #(str (:profile %) "/" tool ".tfstate")}))
 
 (def side-effecting [:clickhouse/network :clickhouse/access :clickhouse/node-1 :clickhouse/node-2
                      :clickhouse/node-3 :clickhouse/metabase :clickhouse/firewall
