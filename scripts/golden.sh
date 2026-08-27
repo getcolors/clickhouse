@@ -11,7 +11,7 @@ accept=0
 
 build() {
   local variant=$1; shift
-  (cd "$root" && env CLICKHOUSE_LIB_ROOT="$root" COLORS_PAR_WORKDIR="$tmp/$variant" "$@" ./green build -f "$state" >/dev/null)
+  (cd "$root/green" && env CLICKHOUSE_LIB_ROOT="$root" COLORS_PAR_WORKDIR="$tmp/$variant" "$@" ./green build -f "$state" >/dev/null)
   if [ "$accept" = 1 ]; then
     rm -rf "$goldens/$variant"; mkdir -p "$goldens/$variant"
     cp -r "$tmp/$variant/." "$goldens/$variant/"

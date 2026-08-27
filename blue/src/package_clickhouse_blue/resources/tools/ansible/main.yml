@@ -1,0 +1,6 @@
+---
+# Convenience entry point for operators. The workflow runs these playbooks as
+# separate stages so ClickHouse and Metabase can converge in parallel.
+- import_playbook: wireguard.yml
+- import_playbook: clickhouse.yml
+- import_playbook: metabase.yml

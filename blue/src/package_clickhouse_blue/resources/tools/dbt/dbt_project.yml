@@ -1,0 +1,13 @@
+name: clickhouse_analytics
+version: '1.0'
+config-version: 2
+profile: clickhouse_analytics
+model-paths: ["models"]
+seed-paths: ["seeds"]
+models:
+  clickhouse_analytics:
+    +materialized: table
+    +engine: ReplicatedMergeTree()
+seeds:
+  clickhouse_analytics:
+    +engine: ReplicatedMergeTree()

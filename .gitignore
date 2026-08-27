@@ -10,5 +10,7 @@
 .colors/
 target/
 node_modules/
+__pycache__/
+*.pyc
 .clj-kondo/.cache/
 .lsp/.cache/

@@ -1,0 +1,13 @@
+clickhouse_analytics:
+  target: prod
+  outputs:
+    prod:
+      type: clickhouse
+      host: <{ clickhouse-host }>
+      port: <{ clickhouse-http-port }>
+      user: <{ clickhouse-dbt-user }>
+      password: "{{ env_var('COLORS_DBT_PASSWORD') }}"
+      schema: analytics
+      cluster: <{ clickhouse-cluster-name }>
+      cluster_mode: true
+      secure: false

@@ -1,0 +1,71 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+#
+# Managed by `bb pin` — do not edit by hand, and never invent a SHA.
+#
+# UNPINNED: this repository has not been pushed and stamped, so the inline
+# metadata above deliberately carries no package-clickhouse-blue git source. A
+# launcher that cannot resolve its own library says so rather than inventing a
+# SHA or silently falling back to whatever is lying around; `bb pin` refuses to
+# stamp a dirty or unpushed HEAD for the same reason. Once stamped, the block
+# above reads:
+#
+#   # dependencies = ["package-clickhouse-blue", "blue", "package-once-blue"]
+#   #
+#   # [tool.uv.sources]
+#   # package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "<sha stamped by bb pin>", subdirectory = "blue" }
+#   # blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
+#   # package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
+#
+# Point it at a checkout meanwhile: CLICKHOUSE_LIB_ROOT=/path/to/clickhouse
+"""Thin launcher for package-clickhouse-blue.
+
+This file is both the skill payload and the repository entry point —
+blue/blue in the repository is a symlink to it. It deliberately holds no
+logic of its own: validation, the graph and the steps all live in the
+package-clickhouse-blue library, where the test suite reaches them. A copied
+payload is the one place in this project where code cannot be tested, so
+nothing that can live elsewhere should live here.
+"""
+
+import os
+import subprocess
+import sys
+
+UNPINNED_ERROR = """\
+this launcher carries no clickhouse pin.
+It has not been stamped by `bb pin`, which cannot run until the clickhouse
+repository has been pushed.
+Point it at a checkout meanwhile: CLICKHOUSE_LIB_ROOT=/path/to/clickhouse
+(or run through the repository project: cd clickhouse/blue && uv run python -m package_clickhouse_blue ...)
+"""
+
+
+def _lib_root_project(root: str) -> str:
+    """The uv project inside a CLICKHOUSE_LIB_ROOT checkout: the repository
+    root or its blue/ implementation both work."""
+    if os.path.isfile(os.path.join(root, "pyproject.toml")):
+        return root
+    return os.path.join(root, "blue")
+
+
+def main() -> None:
+    root = os.environ.get("CLICKHOUSE_LIB_ROOT")
+    if root:
+        result = subprocess.run(
+            ["uv", "run", "--project", _lib_root_project(root),
+             "python", "-m", "package_clickhouse_blue", *sys.argv[1:]])
+        raise SystemExit(result.returncode)
+    try:
+        from package_clickhouse_blue import exec  # resolvable only once pinned
+    except ImportError:
+        sys.stderr.write(UNPINNED_ERROR)
+        raise SystemExit(2)
+    exec()
+
+
+if __name__ == "__main__":
+    main()

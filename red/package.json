@@ -1,0 +1,17 @@
+{
+  "name": "package-clickhouse-red-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "package-once-red": "github:getcolors/once#98d3cfa2c743b89a72bac0252c258f9edeedcad7",
+    "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^7.0.2"
+  }
+}

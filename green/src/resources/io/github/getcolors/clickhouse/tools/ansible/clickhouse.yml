@@ -1,0 +1,94 @@
+- name: Install and configure the ClickHouse cluster
+  hosts: clickhouse
+  become: true
+  tasks:
+    - name: Install repository prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, gnupg]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Install ClickHouse signing key
+      ansible.builtin.get_url:
+        url: https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key
+        dest: /usr/share/keyrings/clickhouse.asc
+        mode: "0644"
+    - name: Configure ClickHouse apt repository
+      ansible.builtin.deb822_repository:
+        name: clickhouse
+        types: [deb]
+        uris: https://packages.clickhouse.com/deb
+        suites: [stable]
+        components: [main]
+        signed_by: /usr/share/keyrings/clickhouse.asc
+        state: present
+    - name: Install the exact ClickHouse packages
+      ansible.builtin.apt:
+        name:
+          - "clickhouse-common-static=<{ clickhouse-version }>"
+          - "clickhouse-client=<{ clickhouse-version }>"
+          - "clickhouse-server=<{ clickhouse-version }>"
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+    - name: Install cluster configuration
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/clickhouse-config.xml"
+        dest: /etc/clickhouse-server/config.d/colors-cluster.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0600"
+      no_log: true
+      notify: Restart ClickHouse
+    - name: Install ClickHouse users
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/clickhouse-users.xml"
+        dest: /etc/clickhouse-server/users.d/colors-users.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: "0600"
+      no_log: true
+      notify: Restart ClickHouse
+    - name: Apply ClickHouse changes now
+      ansible.builtin.meta: flush_handlers
+    - name: Ensure ClickHouse is enabled and running
+      ansible.builtin.systemd_service:
+        name: clickhouse-server
+        enabled: true
+        state: started
+    - name: Wait for local ClickHouse health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:<{ clickhouse-http-port }>/ping"
+        return_content: true
+      register: clickhouse_ping
+      retries: 30
+      delay: 2
+      until: clickhouse_ping.status == 200
+  handlers:
+    - name: Restart ClickHouse
+      ansible.builtin.systemd_service:
+        name: clickhouse-server
+        state: restarted
+
+- name: Verify ClickHouse and Keeper quorum
+  hosts: "{{ groups['clickhouse'][0] }}"
+  become: true
+  tasks:
+    - name: Wait for all replicas through the cluster table
+      ansible.builtin.command:
+        argv:
+          - clickhouse-client
+          - --user
+          - admin
+          - --password
+          - "{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}"
+          - --query
+          - "SELECT count() FROM clusterAllReplicas('<{ clickhouse-cluster-name }>', system.one)"
+      register: replica_count
+      changed_when: false
+      no_log: true
+      retries: 30
+      delay: 3
+      until: replica_count.stdout | trim == '3'
+

@@ -13,6 +13,10 @@ for bad in 'defn.*-step' 'tofu/' 'ansible/'; do ! grep -qE "$bad" "$launcher" ||
 ok 'contains no tool logic'
 grep -qE '\(def \^:private clickhouse-sha (nil|"[0-9a-f]{40}")\)' "$launcher" || fail 'invalid pin site'
 ok 'has one managed pin site'
+[[ -L "$root/green/green" && $(readlink "$root/green/green") == ../skills/package-clickhouse-green/green ]] || fail 'green/green is not the payload symlink'
+[[ -L "$root/red/red" && $(readlink "$root/red/red") == ../skills/package-clickhouse-red/red ]] || fail 'red/red is not the payload symlink'
+[[ -L "$root/blue/blue" && $(readlink "$root/blue/blue") == ../skills/package-clickhouse-blue/blue ]] || fail 'blue/blue is not the payload symlink'
+ok 'each colour dir symlinks its skill payload'
 
 mkdir "$tmp/project"; cp "$launcher" "$tmp/project/green"; chmod +x "$tmp/project/green"
 cp "$root/test/fixtures/colors.yml" "$tmp/project/colors.yml"

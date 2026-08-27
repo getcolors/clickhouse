@@ -1,0 +1,42 @@
+<clickhouse>
+  <listen_host>127.0.0.1</listen_host>
+  <listen_host>{{ private_ip }}</listen_host>
+  <listen_host>{{ vpn_ip }}</listen_host>
+  <http_port><{ clickhouse-http-port }></http_port>
+  <tcp_port><{ clickhouse-native-port }></tcp_port>
+  <interserver_http_host>{{ private_ip }}</interserver_http_host>
+  <interserver_http_credentials>
+    <user>interserver</user>
+    <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET') }}</password>
+  </interserver_http_credentials>
+  <remote_servers>
+    <<{ clickhouse-cluster-name }>>
+      <shard>
+        <internal_replication>true</internal_replication>
+        <replica><host>10.20.1.11</host><port><{ clickhouse-native-port }></port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
+        <replica><host>10.20.1.12</host><port><{ clickhouse-native-port }></port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
+        <replica><host>10.20.1.13</host><port><{ clickhouse-native-port }></port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
+      </shard>
+    </<{ clickhouse-cluster-name }>>
+  </remote_servers>
+  <zookeeper>
+    <node><host>10.20.1.11</host><port>9181</port></node>
+    <node><host>10.20.1.12</host><port>9181</port></node>
+    <node><host>10.20.1.13</host><port>9181</port></node>
+  </zookeeper>
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id>{{ server_ordinal }}</server_id>
+    <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+    <coordination_settings><operation_timeout_ms>10000</operation_timeout_ms><session_timeout_ms>30000</session_timeout_ms></coordination_settings>
+    <raft_configuration>
+      <server><id>1</id><hostname>10.20.1.11</hostname><port>9234</port></server>
+      <server><id>2</id><hostname>10.20.1.12</hostname><port>9234</port></server>
+      <server><id>3</id><hostname>10.20.1.13</hostname><port>9234</port></server>
+    </raft_configuration>
+  </keeper_server>
+  <macros><shard>01</shard><replica>node-{{ server_ordinal }}</replica></macros>
+  <default_replica_path>/clickhouse/tables/{uuid}/{shard}</default_replica_path>
+  <default_replica_name>{replica}</default_replica_name>
+</clickhouse>

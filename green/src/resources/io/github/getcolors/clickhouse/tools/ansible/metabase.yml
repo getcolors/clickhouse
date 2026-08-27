@@ -1,0 +1,76 @@
+- name: Install Metabase and its metadata database
+  hosts: metabase
+  become: true
+  tasks:
+    - name: Install Docker Compose
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Enable Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+    - name: Create Metabase directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0700"
+      loop: [/etc/metabase, /var/lib/metabase/postgres]
+    - name: Install Compose definition
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/docker-compose.yml"
+        dest: /etc/metabase/docker-compose.yml
+        mode: "0644"
+    - name: Write Metabase secrets
+      ansible.builtin.copy:
+        dest: /etc/metabase/.env
+        mode: "0600"
+        content: |
+          METABASE_DB_PASSWORD={{ lookup('env','COLORS_PAR_METABASE_DB_PASSWORD') }}
+          METABASE_ENCRYPTION_SECRET_KEY={{ lookup('env','COLORS_PAR_METABASE_ENCRYPTION_SECRET_KEY') }}
+      no_log: true
+      notify: Restart Metabase
+    - name: Start Metabase stack
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: /etc/metabase
+      register: compose_up
+      changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+    - name: Apply Metabase secret changes before probing it
+      ansible.builtin.meta: flush_handlers
+    - name: Wait for Metabase API
+      ansible.builtin.uri:
+        url: "http://10.21.0.10:<{ metabase-port }>/api/session/properties"
+        return_content: true
+      register: metabase_properties
+      retries: 60
+      delay: 5
+      until: metabase_properties.status == 200
+    - name: Initialize Metabase
+      ansible.builtin.uri:
+        url: "http://10.21.0.10:<{ metabase-port }>/api/setup"
+        method: POST
+        body_format: json
+        status_code: [200, 201]
+        body:
+          token: "{{ metabase_properties.json['setup-token'] }}"
+          user:
+            first_name: Colors
+            last_name: Admin
+            email: "{{ lookup('env','COLORS_PAR_METABASE_ADMIN_EMAIL') }}"
+            password: "{{ lookup('env','COLORS_PAR_METABASE_ADMIN_PASSWORD') }}"
+          prefs:
+            site_name: ClickHouse
+            site_locale: en
+            allow_tracking: false
+      when: metabase_properties.json['setup-token'] is not none
+      no_log: true
+  handlers:
+    - name: Restart Metabase
+      ansible.builtin.command: docker compose up -d --force-recreate
+      args:
+        chdir: /etc/metabase
+

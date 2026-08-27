@@ -1,0 +1,8 @@
+version: 2
+models:
+  - name: events_summary
+    columns:
+      - name: event_type
+        tests: [not_null, unique]
+      - name: event_count
+        tests: [not_null]

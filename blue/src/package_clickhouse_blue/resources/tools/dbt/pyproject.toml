@@ -1,0 +1,8 @@
+[project]
+name = "clickhouse-analytics"
+version = "0.1.0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "dbt-core==<{ dbt-core-version }>",
+  "dbt-clickhouse==<{ dbt-clickhouse-version }>"
+]

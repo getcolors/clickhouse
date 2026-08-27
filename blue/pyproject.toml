@@ -1,0 +1,36 @@
+[project]
+name = "package-clickhouse-blue"
+version = "0.1.0"
+description = "Blue/Python implementation of the ClickHouse package"
+requires-python = ">=3.11"
+dependencies = [
+    "blue",
+    "package-once-blue",
+]
+
+[tool.uv.sources]
+blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
+package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
+
+# The ONCE pin above carries its own, older blue pin
+# (369c5aafea790a03b649b3513003651e672f3f57); without this override the two git
+# URLs conflict and uv refuses to resolve. The override makes this package's
+# blue pin the one that wins, the way tools.deps lets the top-level green pin
+# win in green/deps.edn.
+[tool.uv]
+override-dependencies = [
+    "blue @ git+https://github.com/getcolors/blue.git@290f313ead5ca162875c33a049c880da017eae09",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.metadata]
+allow-direct-references = true
+[tool.hatch.build.targets.wheel]
+packages = ["src/package_clickhouse_blue"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

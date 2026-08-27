@@ -1,0 +1,11 @@
+{
+  "name": "package-clickhouse-red",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./red/src/index.ts" },
+  "files": ["red/src", "red/resources"],
+  "peerDependencies": { "red": "*", "package-once-red": "*" },
+  "peerDependenciesMeta": { "red": { "optional": true }, "package-once-red": { "optional": true } },
+  "scripts": { "test": "cd red && bun test && bun run typecheck", "typecheck": "cd red && bun run typecheck", "parity": "./scripts/parity.sh" }
+}
