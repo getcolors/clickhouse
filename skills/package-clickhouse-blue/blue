@@ -1,26 +1,21 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["package-clickhouse-blue", "blue", "package-once-blue"]
+#
+# [tool.uv.sources]
+# package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "c0268556f416b0d9e88a9431c95bbd0be1f10f60", subdirectory = "blue" }
+# blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
+# package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
+#
+# [tool.uv]
+# override-dependencies = ["blue @ git+https://github.com/getcolors/blue.git@290f313ead5ca162875c33a049c880da017eae09"]
 # ///
 #
 # Managed by `bb pin` — do not edit by hand, and never invent a SHA.
 #
-# UNPINNED: this repository has not been pushed and stamped, so the inline
-# metadata above deliberately carries no package-clickhouse-blue git source. A
-# launcher that cannot resolve its own library says so rather than inventing a
-# SHA or silently falling back to whatever is lying around; `bb pin` refuses to
-# stamp a dirty or unpushed HEAD for the same reason. Once stamped, the block
-# above reads:
-#
-#   # dependencies = ["package-clickhouse-blue", "blue", "package-once-blue"]
-#   #
-#   # [tool.uv.sources]
-#   # package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "<sha stamped by bb pin>", subdirectory = "blue" }
-#   # blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
-#   # package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
-#
-# Point it at a checkout meanwhile: CLICKHOUSE_LIB_ROOT=/path/to/clickhouse
+# Stamped by `bb pin`. CLICKHOUSE_LIB_ROOT=/path/to/clickhouse still overrides the
+# pin with a working tree.
 """Thin launcher for package-clickhouse-blue.
 
 This file is both the skill payload and the repository entry point —
