@@ -22,10 +22,16 @@ jobs:
       - uses: DeLaGuardo/setup-clojure@13.4
         with:
           bb: latest
-      - name: Unit tests
-        run: bb test
-      - name: Golden render
-        run: bb golden
+      - uses: oven-sh/setup-bun@v2
+      - uses: astral-sh/setup-uv@v6
+      - name: Green tests and goldens
+        run: cd green && bb test && bb golden
+      - name: Red tests and typecheck
+        run: cd red && bun install && bun test && bun run typecheck
+      - name: Blue tests
+        run: cd blue && uv sync && uv run pytest -q
+      - name: Byte parity
+        run: ./scripts/parity.sh
       - name: Launcher resolution
         run: ./scripts/launcher.sh
 
