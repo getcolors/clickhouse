@@ -14,7 +14,6 @@ from blue.cli import par_name
 from package_once_blue.validate import providers as once_providers
 from colors_compute.contract import registry, validate as compute_validate
 from colors_compute.planning import plan_deployment
-from colors_compute.ssh import _mode
 from . import compute
 
 providers = {**once_providers, "provider-compute": registry()["compute"], "provider-backend": registry()["backend"]}
@@ -116,12 +115,6 @@ def state_errors(opts: dict) -> list[str]:
             and opts.get("clickhouse-replicas") == 3
             and opts.get("clickhouse-keeper-nodes") == 3):
         errors.append("v1 requires one shard, three replicas, and three Keeper nodes")
-    try:
-        selected = _mode(opts)
-        if selected['mode'] == 'external' and placeholder(selected.get('private_key_path')):
-            errors.append(':ssh-private-key-path is required for external SSH access')
-    except ValueError:
-        pass
     compute_errors = compute_validate(opts)
     errors.extend(compute_errors)
     if not compute_errors:

@@ -210,7 +210,7 @@ export function inventory(opts: Opts): string {
       ansible_host: s.ip, ansible_user: s.user,
       private_ip: s["private-ip"], vpn_ip: s["vpn-ip"],
       server_role: s.role, server_ordinal: s.ordinal,
-      ansible_ssh_private_key_file: inventoryKey,
+      ...(inventoryKey ? {ansible_ssh_private_key_file: inventoryKey} : {}),
     };
   }
   const selectKeys = (keys: string[]): Record<string, Opts> =>

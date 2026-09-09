@@ -34,6 +34,6 @@
     (is (some #(re-find #"at least 16" %)
               (validate/secret-errors (assoc opts :metabase-encryption-secret-key "short"))))))
 
-(deftest external-key-requires-access-path-and-managed-mode-needs-none
-  (is (some #(re-find #"ssh-private-key-path" %) (validate/state-errors (dissoc base :ssh-private-key-path))))
+(deftest external-key-allows-agent-and-managed-mode-needs-no-path
+  (is (= [] (validate/state-errors (dissoc base :ssh-private-key-path))))
   (is (= [] (validate/state-errors (dissoc base :ssh-private-key-path :hcloud-ssh-keys)))))

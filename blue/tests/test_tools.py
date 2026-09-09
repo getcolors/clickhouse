@@ -21,10 +21,12 @@ def test_vpn_addresses_stay_application_owned():
 
 async def test_native_full_build_managed_and_external(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path / 'empty-home'))
-    for external in (False, True):
+    for external in (False, True, "agent"):
         opts = fixture(tmp_path / str(external))
         if external:
             opts.update({'ssh-keygen': False, 'hcloud-ssh-keys': 'fixture-key', 'ssh-private-key-path': '/operator/custom'})
+        if external == 'agent':
+            opts.pop('ssh-private-key-path', None)
         result = await run(workflow.create_workflow(), opts)
         assert result['blue/exit'] == 0, result.get('blue/err')
         root = Path(opts['workdir']) / opts['profile']
@@ -34,6 +36,9 @@ async def test_native_full_build_managed_and_external(tmp_path, monkeypatch):
         assert len(hosts) == 4
         assert hosts[opts['profile'] + '-metabase']['server_ordinal'] == 10
         assert hosts[opts['profile'] + '-metabase']['vpn_ip'] == '10.21.0.10'
+        if external == 'agent':
+            assert all('ansible_ssh_private_key_file' not in host for host in hosts.values())
+            continue
         assert hosts[opts['profile'] + '-node-1']['ansible_ssh_private_key_file'] == ('/operator/custom' if external else '/home/build-placeholder/.ssh/' + opts['profile'])
     assert not (tmp_path / 'empty-home/.ssh').exists()
 

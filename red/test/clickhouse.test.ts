@@ -115,14 +115,16 @@ describe("workflow", () => {
  test('native full build uses shared library and preserves application inventory', async()=> {
   const dir=mkdtempSync(join(tmpdir(),'clickhouse-build-'));
   try {
-   for(const external of [false,true]) {
+   for(const external of [false,true,"agent"]) {
     const opts:Opts={...base,workdir:join(dir,String(external)),'red/event':'build'};
     if(!external) {delete opts['hcloud-ssh-keys'];delete opts['ssh-private-key-path'];}
+    if(external==='agent') delete opts['ssh-private-key-path'];
     const result=await run(workflow.clickhouseWorkflow,opts);
     expect(result['red/exit']).toBe(0);
     const inventory=JSON.parse(readFileSync(join(opts.workdir,'p/clickhouse-ansible/inventory.json'),'utf8'));
     const host=inventory.all.children.managed.hosts['p-metabase'];
     expect(host.server_ordinal).toBe(10);
+    if(external==='agent') {expect(Object.hasOwn(host,'ansible_ssh_private_key_file')).toBe(false);continue;}
     expect(host.ansible_ssh_private_key_file).toBe(external?'~/.ssh/id_ed25519':'/home/build-placeholder/.ssh/p');
    }
   } finally {rmSync(dir,{recursive:true,force:true});}

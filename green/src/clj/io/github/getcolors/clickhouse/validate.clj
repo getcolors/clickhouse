@@ -5,7 +5,6 @@
             [io.github.getcolors.once.validate :as once-validate]
             [io.github.getcolors.compute :as library]
             [io.github.getcolors.compute-planning :as planning]
-            [io.github.getcolors.compute-ssh :as ssh]
             [io.github.getcolors.clickhouse.compute :as compute]))
 
 (defn- entry-keys [entry] (-> entry (update :required #(mapv keyword %)) (update :secrets #(mapv keyword %))))
@@ -71,10 +70,6 @@
                    (= 3 (:clickhouse-replicas opts))
                    (= 3 (:clickhouse-keeper-nodes opts)))
       ["v1 requires one shard, three replicas, and three Keeper nodes"])
-    (try (let [selected (ssh/mode opts)]
-           (when (and (= "external" (:mode selected)) (placeholder? (:private_key_path selected)))
-             [":ssh-private-key-path is required for external SSH access"]))
-         (catch Exception _ []))
     (library/validate opts)
     (when (empty? (library/validate opts))
       (try (planning/plan-deployment opts compute/topology (compute/requirements opts)) []

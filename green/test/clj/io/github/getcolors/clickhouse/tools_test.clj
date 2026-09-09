@@ -44,3 +44,9 @@
                   process/shell (fn [& _] (swap! calls conj :dns) {:exit 0})]
       (is (= 0 (:green/exit (tools/drift-step opts))))
       (is (= [:compute :dns] @calls)))))
+
+(deftest external-inventory-allows-operator-agent
+  (let [opts (dissoc (assoc base :colors-compute/cluster recorded) :ssh-private-key-path)
+        hosts (get-in (json/parse-string (tools/inventory opts) true) [:all :children :managed :hosts])]
+    (is (= 4 (count hosts)))
+    (is (every? #(not (contains? % :ansible_ssh_private_key_file)) (vals hosts)))))

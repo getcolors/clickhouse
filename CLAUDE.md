@@ -73,8 +73,7 @@ launchers are copies, not symlinks.
 ## Safety
 
 Credentials use `COLORS_PAR_*` and never render. `COLORS_PAR_PROFILE` is
-refused. The library owns generated SSH keys at ~/.ssh/<profile>. External SSH access
-requires ssh-private-key-path. WireGuard keys remain on the managed hosts.
+refused. The library owns generated SSH keys at ~/.ssh/<profile>. External SSH access may select ssh-private-key-path; otherwise SSH uses the operator configuration or agent. WireGuard keys remain on the managed hosts.
 Public ingress is SSH and WireGuard UDP only. ClickHouse, Keeper, and Metabase
 ports must remain closed publicly.
 

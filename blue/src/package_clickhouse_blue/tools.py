@@ -177,7 +177,7 @@ def inventory(opts: dict) -> str:
         "ansible_host": s.get("ip"), "ansible_user": s.get("user"),
         "private_ip": s.get("private-ip"), "vpn_ip": s.get("vpn-ip"),
         "server_role": s.get("role"), "server_ordinal": s.get("ordinal"),
-        "ansible_ssh_private_key_file": inventory_key,
+        **({"ansible_ssh_private_key_file": inventory_key} if inventory_key else {}),
     } for id, s in servers.items()}
 
     def select_keys(keys: list[str]) -> dict:

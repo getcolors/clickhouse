@@ -109,11 +109,11 @@
         hosts (into {}
                     (map (fn [[id s]]
                            [(utils/host-alias opts id)
-                            {:ansible_host (:ip s) :ansible_user (:user s)
+                            (cond-> {:ansible_host (:ip s) :ansible_user (:user s)
                              :private_ip (:private-ip s) :vpn_ip (:vpn-ip s)
-                             :server_role (:role s) :server_ordinal (:ordinal s)
-                             :ansible_ssh_private_key_file
-                             (:ssh-private-key-path opts)}]))
+                             :server_role (:role s) :server_ordinal (:ordinal s)}
+                              (:ssh-private-key-path opts)
+                              (assoc :ansible_ssh_private_key_file (:ssh-private-key-path opts)))]))
                     servers)]
     (json/generate-string
      {:all {:children {:managed {:hosts hosts}

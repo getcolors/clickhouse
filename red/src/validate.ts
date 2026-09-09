@@ -8,7 +8,7 @@
 import { parName } from "red/cli";
 import type { Opts } from "red/workflow";
 import { providers as onceProviders } from "package-once-red";
-import { registry, validate as computeValidate, plan_deployment, keyMode } from 'colors-compute-red';
+import { registry, validate as computeValidate, plan_deployment } from 'colors-compute-red';
 import * as compute from './compute.ts';
 const data=registry;
 export const providers:any={...onceProviders,'provider-compute':data.compute,'provider-backend':{...data.backend,r2:{...data.backend.r2,tofuEnv:onceProviders['provider-backend'].r2.tofuEnv}}};
@@ -117,7 +117,6 @@ export function stateErrors(opts: Opts): string[] {
         opts["clickhouse-keeper-nodes"] === 3)) {
     errors.push("v1 requires one shard, three replicas, and three Keeper nodes");
   }
-  try { const selected=keyMode(opts); if(selected.mode==='external'&&placeholder(selected.private_key_path)) errors.push(':ssh-private-key-path is required for external SSH access'); } catch {}
   const computeErrors=computeValidate(opts); errors.push(...computeErrors);
   if(!computeErrors.length) {try {plan_deployment(opts,compute.TOPOLOGY,compute.requirements(opts));} catch(error) {errors.push(String((error as Error).message));}}
   return errors;
