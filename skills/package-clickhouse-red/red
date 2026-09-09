@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 // directory, which would halt Bun's upward resolution of `package-clickhouse-red`
 // and break the development symlink at red/red.
 const PINS = {
-  "package-clickhouse-red": "github:getcolors/clickhouse#b8b902f1c2be349240dcb25d8b20cb9a5ef679aa",
+  "package-clickhouse-red": "github:getcolors/clickhouse#6a41ca86ffaeb7a93835d8bf370e7326c5a31ebb",
   "package-once-red": "github:getcolors/once#98d3cfa2c743b89a72bac0252c258f9edeedcad7",
 };
 
