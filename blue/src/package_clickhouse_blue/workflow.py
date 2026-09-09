@@ -6,12 +6,12 @@ from __future__ import annotations
 from blue import dry_run, progress, tofu
 from blue.cli import par_name, read_pars
 from blue.lifecycle import preflight
-from blue.workflow import advice_add, workflow
+from blue.workflow import advice_add, workflow, failed
 
 from . import tools, validate
 
 DEFAULTS = {"compute-prevent-destroy": True, "provider-compute": "hcloud",
-            "provider-dns": "cloudflare", "provider-backend": "local",
+            "provider-dns": "cloudflare", "provider-backend": "r2",
             "workdir": ".colors"}
 
 LIFECYCLE_EVENTS = ("create", "delete")
@@ -36,46 +36,30 @@ def pass_step(opts: dict) -> dict:
     return {**opts, "blue/exit": 0}
 
 
-def wire_fn(step: str, run_opts: dict):
-    if run_opts.get("blue/event") == "delete":
+def wire_fn(step, run_opts):
+    if run_opts.get('blue/event') == 'delete':
         return {
-            "clickhouse/start": (start_step, "clickhouse/dbt"),
-            "clickhouse/dbt": (tools.dbt_step, "clickhouse/acceptance"),
-            "clickhouse/acceptance": (tools.acceptance_step, "clickhouse/ansible-cleanup"),
-            "clickhouse/ansible-cleanup": (tools.ansible_cleanup_step,
-                                           "clickhouse/dns", "clickhouse/firewall"),
-            "clickhouse/dns": (tools.dns_step, "clickhouse/infrastructure-clean"),
-            "clickhouse/firewall": (tools.firewall_step, "clickhouse/infrastructure-clean"),
-            "clickhouse/infrastructure-clean": (pass_step,
-                                                "clickhouse/node-1", "clickhouse/node-2",
-                                                "clickhouse/node-3", "clickhouse/metabase"),
-            "clickhouse/node-1": (tools.node_1_step, "clickhouse/access"),
-            "clickhouse/node-2": (tools.node_2_step, "clickhouse/access"),
-            "clickhouse/node-3": (tools.node_3_step, "clickhouse/access"),
-            "clickhouse/metabase": (tools.metabase_step, "clickhouse/access"),
-            "clickhouse/access": (tools.access_step, "clickhouse/network"),
-            "clickhouse/network": (tools.network_step,),
+            'clickhouse/start': (start_step, 'clickhouse/load-infrastructure'),
+            'clickhouse/load-infrastructure': (tools.load_infrastructure_step, 'clickhouse/dbt'),
+            'clickhouse/dbt': (tools.dbt_step, 'clickhouse/acceptance'),
+            'clickhouse/acceptance': (tools.acceptance_step, 'clickhouse/ansible-cleanup'),
+            'clickhouse/ansible-cleanup': (tools.ansible_cleanup_step, 'clickhouse/ansible-local'),
+            'clickhouse/ansible-local': (tools.ansible_local_step, 'clickhouse/dns'),
+            'clickhouse/dns': (tools.dns_step, 'clickhouse/infrastructure'),
+            'clickhouse/infrastructure': (tools.infrastructure_step,),
         }.get(step)
     return {
-        "clickhouse/start": (start_step, "clickhouse/network"),
-        "clickhouse/network": (tools.network_step, "clickhouse/access"),
-        "clickhouse/access": (tools.access_step,
-                              "clickhouse/node-1", "clickhouse/node-2",
-                              "clickhouse/node-3", "clickhouse/metabase"),
-        "clickhouse/node-1": (tools.node_1_step, "clickhouse/firewall"),
-        "clickhouse/node-2": (tools.node_2_step, "clickhouse/firewall"),
-        "clickhouse/node-3": (tools.node_3_step, "clickhouse/firewall"),
-        "clickhouse/metabase": (tools.metabase_step, "clickhouse/firewall"),
-        "clickhouse/firewall": (tools.firewall_step, "clickhouse/dns"),
-        "clickhouse/dns": (tools.dns_step, "clickhouse/ansible-render"),
-        "clickhouse/ansible-render": (tools.ansible_render_step, "clickhouse/wireguard"),
-        "clickhouse/wireguard": (tools.wireguard_step,
-                                 "clickhouse/clickhouse-config", "clickhouse/metabase-config"),
-        "clickhouse/clickhouse-config": (tools.clickhouse_config_step, "clickhouse/dbt"),
-        "clickhouse/metabase-config": (tools.metabase_config_step, "clickhouse/dbt"),
-        "clickhouse/dbt": (tools.dbt_step, "clickhouse/acceptance"),
-        "clickhouse/acceptance": (tools.acceptance_step, "clickhouse/drift"),
-        "clickhouse/drift": (tools.drift_step,),
+        'clickhouse/start': (start_step, 'clickhouse/infrastructure'),
+        'clickhouse/infrastructure': (tools.infrastructure_step, 'clickhouse/dns'),
+        'clickhouse/dns': (tools.dns_step, 'clickhouse/ansible-local'),
+        'clickhouse/ansible-local': (tools.ansible_local_step, 'clickhouse/ansible-render'),
+        'clickhouse/ansible-render': (tools.ansible_render_step, 'clickhouse/wireguard'),
+        'clickhouse/wireguard': (tools.wireguard_step, 'clickhouse/clickhouse-config', 'clickhouse/metabase-config'),
+        'clickhouse/clickhouse-config': (tools.clickhouse_config_step, 'clickhouse/dbt'),
+        'clickhouse/metabase-config': (tools.metabase_config_step, 'clickhouse/dbt'),
+        'clickhouse/dbt': (tools.dbt_step, 'clickhouse/acceptance'),
+        'clickhouse/acceptance': (tools.acceptance_step, 'clickhouse/drift'),
+        'clickhouse/drift': (tools.drift_step,),
     }.get(step)
 
 
@@ -85,16 +69,13 @@ def backend_advice(tool: str):
         key=lambda o, tool=tool: f"{o.get('profile')}/{tool}.tfstate")
 
 
-side_effecting = ["clickhouse/network", "clickhouse/access", "clickhouse/node-1",
-                  "clickhouse/node-2", "clickhouse/node-3", "clickhouse/metabase",
-                  "clickhouse/firewall", "clickhouse/dns", "clickhouse/wireguard",
-                  "clickhouse/clickhouse-config", "clickhouse/metabase-config",
-                  "clickhouse/ansible-cleanup", "clickhouse/dbt",
-                  "clickhouse/acceptance", "clickhouse/drift"]
+side_effecting = ['clickhouse/ansible-local','clickhouse/infrastructure', 'clickhouse/load-infrastructure', 'clickhouse/dns',
+    'clickhouse/wireguard', 'clickhouse/clickhouse-config', 'clickhouse/metabase-config',
+    'clickhouse/ansible-cleanup', 'clickhouse/dbt', 'clickhouse/acceptance', 'clickhouse/drift']
 
 
 def create_workflow():
-    wf = workflow(start="clickhouse/start", wire_fn=wire_fn)
+    wf = workflow(start="clickhouse/start", wire_fn=wire_fn, next_fn=lambda step, successors, opts: [] if opts.get("clickhouse/already-destroyed") or failed(opts) else [(successor, opts) for successor in successors or []])
     wf = progress.advise(wf)
     wf = dry_run.advise(wf, side_effecting)
     for tool in tools.tofu_tools:

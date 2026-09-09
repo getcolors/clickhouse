@@ -1,7 +1,8 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["package-clickhouse-blue", "blue", "package-once-blue"]
+# dependencies = [
+#   "colors-compute-blue @ git+https://github.com/getcolors/colors-compute.git@6325b24d8a7477429164c5bb0b2a0a6454fd8c42#subdirectory=blue","package-clickhouse-blue", "blue", "package-once-blue"]
 #
 # [tool.uv.sources]
 # package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "c0268556f416b0d9e88a9431c95bbd0be1f10f60", subdirectory = "blue" }

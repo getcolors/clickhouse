@@ -3,7 +3,7 @@ profile: clickhouse-example
 workdir: .colors
 provider-compute: hcloud
 provider-dns: cloudflare
-provider-backend: local
+provider-backend: r2
 compute-prevent-destroy: true
 domain: example.com
 clickhouse-cluster-name: clickhouse-example
@@ -26,10 +26,14 @@ hcloud-image: ubuntu-24.04
 hcloud-server-type: cx33
 metabase-hcloud-server-type: cx23
 hcloud-location: nbg1
-hcloud-ssh-keys: REPLACE_ME
+ssh-keygen: true
 hcloud-network-zone: eu-central
 hcloud-network-cidr: 10.20.0.0/16
 hcloud-subnet-cidr: 10.20.1.0/24
 wireguard-port: 51820
 wireguard-network-cidr: 10.21.0.0/24
 wireguard-client-address: 10.21.0.254/32
+
+# Replace these example remote-state settings for the deployment.
+r2-bucket: example-compute-state
+r2-endpoint: https://example.r2.cloudflarestorage.com

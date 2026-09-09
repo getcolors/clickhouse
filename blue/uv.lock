@@ -33,6 +33,14 @@ wheels = [
 ]
 
 [[package]]
+name = "colors-compute-blue"
+version = "0.1.0"
+source = { git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=6325b24d8a7477429164c5bb0b2a0a6454fd8c42#6325b24d8a7477429164c5bb0b2a0a6454fd8c42" }
+dependencies = [
+    { name = "blue" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -47,6 +55,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "blue" },
+    { name = "colors-compute-blue" },
     { name = "package-once-blue" },
 ]
 
@@ -59,6 +68,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "blue", git = "https://github.com/getcolors/blue.git?rev=290f313ead5ca162875c33a049c880da017eae09" },
+    { name = "colors-compute-blue", git = "https://github.com/getcolors/colors-compute.git?subdirectory=blue&rev=6325b24d8a7477429164c5bb0b2a0a6454fd8c42" },
     { name = "package-once-blue", git = "https://github.com/getcolors/once.git?subdirectory=blue&rev=98d3cfa2c743b89a72bac0252c258f9edeedcad7" },
 ]
 

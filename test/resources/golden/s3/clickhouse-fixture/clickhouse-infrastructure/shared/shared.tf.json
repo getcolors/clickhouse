@@ -1,0 +1,81 @@
+{
+  "output": {
+    "params": {
+      "value": {
+        "firewall_id": "${hcloud_firewall.network.id}",
+        "network_cidr": "${hcloud_network.network.ip_range}",
+        "provider": "hcloud",
+        "subnet_cidr": "${hcloud_network_subnet.network.ip_range}",
+        "subnet_id": "${hcloud_network_subnet.network.id}",
+        "vpc_id": "${hcloud_network.network.id}",
+        "vpc_ip_range": "${hcloud_network.network.ip_range}"
+      }
+    }
+  },
+  "provider": {
+    "hcloud": {}
+  },
+  "resource": {
+    "hcloud_firewall": {
+      "network": {
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "clickhouse-fixture-firewall",
+        "rule": [
+          {
+            "direction": "in",
+            "protocol": "icmp",
+            "source_ips": [
+              "0.0.0.0/0"
+            ]
+          },
+          {
+            "direction": "in",
+            "port": "22",
+            "protocol": "tcp",
+            "source_ips": [
+              "0.0.0.0/0"
+            ]
+          },
+          {
+            "direction": "in",
+            "port": "51820",
+            "protocol": "udp",
+            "source_ips": [
+              "0.0.0.0/0"
+            ]
+          }
+        ]
+      }
+    },
+    "hcloud_network": {
+      "network": {
+        "ip_range": "10.20.0.0/16",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "clickhouse-fixture-network"
+      }
+    },
+    "hcloud_network_subnet": {
+      "network": {
+        "ip_range": "10.20.1.0/24",
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "network_id": "${hcloud_network.network.id}",
+        "network_zone": "eu-central",
+        "type": "cloud"
+      }
+    }
+  },
+  "terraform": {
+    "required_providers": {
+      "hcloud": {
+        "source": "hetznercloud/hcloud",
+        "version": "1.54.0"
+      }
+    }
+  }
+}

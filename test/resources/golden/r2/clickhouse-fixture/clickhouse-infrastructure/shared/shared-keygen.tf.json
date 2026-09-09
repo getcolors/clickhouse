@@ -1,0 +1,25 @@
+{
+  "output": {
+    "registration": {
+      "value": {
+        "id": "${hcloud_ssh_key.machine.id}",
+        "provider": "hcloud",
+        "scope": "project"
+      }
+    },
+    "ssh_key_id": {
+      "value": "${hcloud_ssh_key.machine.id}"
+    }
+  },
+  "resource": {
+    "hcloud_ssh_key": {
+      "machine": {
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "clickhouse-fixture",
+        "public_key": "ssh-ed25519 PLACEHOLDER managed-by-colors"
+      }
+    }
+  }
+}

@@ -1,8 +1,15 @@
+import localMain from "../resources/tools/ansible-local/main.yml" with { type: "text" };
+import localInventory from "../resources/tools/ansible-local/inventory.ini" with { type: "text" };
+import localCfg from "../resources/tools/ansible-local/ansible.cfg" with { type: "text" };
+import * as sshConfig from './ssh-config.ts';
+import {keyMode} from 'colors-compute-red';
+import { plan_deployment, orchestrate, read_deployment, check_deployment_drift } from 'colors-compute-red';
+import * as compute from './compute.ts';
 // OpenTofu and Ansible stages for the fixed v1 topology, the port of
 // io.github.getcolors.clickhouse.tools.
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import * as ansible from "red/ansible";
 import { stageDir } from "red/cli";
 import { toolEnv } from "red/providers";
@@ -30,26 +37,14 @@ import dbtSchema from "../resources/tools/dbt/models/schema.yml" with { type: "t
 import dbtProfiles from "../resources/tools/dbt/profiles.yml" with { type: "text" };
 import dbtPyproject from "../resources/tools/dbt/pyproject.toml" with { type: "text" };
 import dbtEvents from "../resources/tools/dbt/seeds/events.csv" with { type: "text" };
-import tofuAccessMainTf from "../resources/tools/tofu/access/main.tf" with { type: "text" };
 import tofuDnsMainTf from "../resources/tools/tofu/dns/main.tf" with { type: "text" };
-import tofuFirewallMainTf from "../resources/tools/tofu/firewall/main.tf" with { type: "text" };
-import tofuNetworkMainTf from "../resources/tools/tofu/network/main.tf" with { type: "text" };
-import tofuServerAttachTf from "../resources/tools/tofu/server/attach.tf" with { type: "text" };
 
-export const networkTool = "clickhouse-network";
-export const accessTool = "clickhouse-access";
-export const firewallTool = "clickhouse-firewall";
+export const infrastructureTool = "clickhouse-infrastructure";
 export const dnsTool = "clickhouse-dns";
 export const ansibleTool = "clickhouse-ansible";
 export const dbtTool = "clickhouse-dbt";
 export const acceptanceTool = "clickhouse-acceptance";
-export const serverTools: Record<string, string> = {
-  "node-1": "clickhouse-node-1", "node-2": "clickhouse-node-2",
-  "node-3": "clickhouse-node-3", metabase: "clickhouse-metabase",
-};
-export const tofuTools = [
-  networkTool, accessTool, ...Object.values(serverTools), firewallTool, dnsTool,
-];
+export const tofuTools = [dnsTool];
 
 export const templateOpts = PRESERVE_JINJA_DELIMITERS;
 
@@ -60,6 +55,7 @@ export function toolDir(opts: Opts, tool: string): string {
 // The template tree this colour carries, keyed the way green names its
 // classpath resources: "<path>/<file>" with dots as directories.
 const templates: Record<string, string> = {
+  "ansible-local/ansible.cfg":localCfg,"ansible-local/inventory.ini":localInventory,"ansible-local/main.yml":localMain,
   "acceptance/acceptance.py": acceptancePy,
   "ansible/ansible.cfg": ansibleCfg,
   "ansible/cleanup.yml": ansibleCleanup,
@@ -78,11 +74,7 @@ const templates: Record<string, string> = {
   "dbt/profiles.yml": dbtProfiles,
   "dbt/pyproject.toml": dbtPyproject,
   "dbt/seeds/events.csv": dbtEvents,
-  "tofu/access/main.tf": tofuAccessMainTf,
   "tofu/dns/main.tf": tofuDnsMainTf,
-  "tofu/firewall/main.tf": tofuFirewallMainTf,
-  "tofu/network/main.tf": tofuNetworkMainTf,
-  "tofu/server/attach.tf": tofuServerAttachTf,
 };
 
 export function template(path: string, file: string): Template {
@@ -90,14 +82,6 @@ export function template(path: string, file: string): Template {
   const content = templates[name];
   if (content === undefined) throw new StepError(`template not found: ${name}`);
   return { name, content };
-}
-
-// ONCE's unmodified Hetzner compute template, resolved from the installed
-// package the way the airflow package resolves ONCE's compute templates.
-export function onceTemplate(provider: string): Template {
-  const entry = Bun.resolveSync("package-once-red", import.meta.dir);
-  const path = join(dirname(entry), `../resources/tools/tofu/${provider}/main.tf`);
-  return { name: `once/tools/tofu/${provider}/main.tf`, content: readFileSync(path, "utf8") };
 }
 
 function spec(source: Template, target: string, data: Opts): Spec {
@@ -118,145 +102,38 @@ export async function tofuStep(opts: Opts, tool: string, specs: Spec[], slots: s
   });
 }
 
-export async function networkStep(opts: Opts): Promise<Opts> {
-  const dir = toolDir(opts, networkTool);
-  return tofuStep(opts, networkTool,
-    [spec(template("tofu.network", "main.tf"), `${dir}/main.tf`, opts)],
-    ["provider-compute"]);
+function sorted(value: any): any {
+  if (Array.isArray(value)) return value.map(sorted);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key=>[key,sorted(value[key])]));
+  return value;
 }
-
-export const placeholderSshPublicKey =
-  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHDKdUkY+SfRm6ttOz2EEZ2+i/zm+o1mpMOdMeGUr0t4 colors-build-placeholder";
-
-export function managedSshData(opts: Opts): Opts {
-  const dir = toolDir(opts, accessTool);
-  const privateFile = resolve(join(dir, ".private", "id_ed25519"));
-  const publicFile = `${privateFile}.pub`;
-  return {
-    ...opts,
-    "managed-ssh-key-name": `${opts["hcloud-name"]}-managed`,
-    "managed-ssh-private-key": privateFile,
-    "managed-ssh-inventory-key": "../clickhouse-access/.private/id_ed25519",
-    "managed-ssh-public-key": existsSync(publicFile)
-      ? readFileSync(publicFile, "utf8").trim()
-      : placeholderSshPublicKey,
-  };
-}
-
-export async function ensureSshAgent(opts: Opts): Promise<Opts> {
-  const privateFile = String(opts["managed-ssh-private-key"]);
-  const socket = `/tmp/colors-${opts.profile}-ssh-agent.sock`;
-  const env = { SSH_AUTH_SOCK: socket };
-  const listed = await runtime.exec(["ssh-add", "-l"], { env });
-  if (listed.exit !== 0) {
-    rmSync(socket, { force: true });
-    const started = await runtime.exec(["ssh-agent", "-a", socket]);
-    if (started.exit !== 0) {
-      throw new StepError("failed to start managed SSH agent", { exit: started.exit });
+export async function infrastructureStep(opts: Opts): Promise<Opts> {
+  try {
+    const planning=opts['red/event']==='build'||opts['red/dry-run'];
+    const result:any=planning?plan_deployment(opts,compute.TOPOLOGY,compute.requirements(opts)):await orchestrate(opts,compute.TOPOLOGY,compute.requirements(opts));
+    if(planning) {
+      const stages:any[]=[['shared',result.documents.shared],...Object.entries(result.documents.nodes).map(([node,docs])=>['nodes/'+node,docs])];
+      for(const [stage,documents] of stages) for(const [name,document] of Object.entries(documents)) {
+        const target=join(toolDir(opts,infrastructureTool),stage,name); mkdirSync(dirname(target),{recursive:true});
+        writeFileSync(target,JSON.stringify(sorted(document),null,2)+'\n');
+      }
     }
-  }
-  const added = await runtime.exec(["ssh-add", privateFile], { env });
-  if (added.exit === 0) return { ...opts, "clickhouse/process-env": env };
-  return { ...opts, "red/exit": added.exit, "red/err": "failed to load managed SSH key" };
+    if(!['ready','planned','destroyed'].includes(result.status)) return {...opts,'red/exit':1,'red/err':result.errors?.join('\n')||'compute lifecycle refused; inspect deployment state before retrying'};
+    const output:Opts={...opts,'red/exit':0};
+    if(result.cluster) Object.assign(output,{'colors-compute/cluster':result.cluster,'colors-compute/shared':result.shared});
+    const path=result.key?.private_key_path;
+    if(path) output['ssh-private-key-path']=planning?path.replace('$HOME/.ssh','/home/build-placeholder/.ssh'):path;
+    return output;
+  } catch {return {...opts,'red/exit':1,'red/err':'compute lifecycle refused; inspect deployment state before retrying'};}
 }
-
-export async function accessStep(opts: Opts): Promise<Opts> {
-  let data = managedSshData(opts);
-  const privateFile = String(data["managed-ssh-private-key"]);
-  let keyResult;
-  if (opts["red/event"] === "create" && !existsSync(privateFile)) {
-    mkdirSync(dirname(privateFile), { recursive: true });
-    keyResult = await runtime.exec([
-      "ssh-keygen", "-q", "-t", "ed25519", "-N", "",
-      "-C", `${opts.profile} managed by Colors`,
-      "-f", privateFile,
-    ]);
-  }
-  data = managedSshData(opts);
-  if (opts["red/event"] === "create" && (!keyResult || keyResult.exit === 0)) {
-    data = await ensureSshAgent(data);
-  }
-  if (keyResult && keyResult.exit !== 0) {
-    return { ...opts, "red/exit": keyResult.exit, "red/err": keyResult.err };
-  }
-  if (failed(data)) return data;
-  const dir = toolDir(opts, accessTool);
-  return tofuStep(data, accessTool,
-    [spec(template("tofu.access", "main.tf"), `${dir}/main.tf`, data)],
-    ["provider-compute"]);
-}
-
-export function serverData(opts: Opts, id: string): Opts {
-  const { role, ordinal } = utils.server(id);
-  const base = String(opts["hcloud-name"]);
-  return {
-    ...opts,
-    "server-id": id, "server-role": role, "server-ordinal": ordinal,
-    "vpn-ip": utils.server(id)["vpn-ip"], "private-ip": utils.server(id)["private-ip"],
-    "network-name": `${base}-network`,
-    "hcloud-ssh-keys": `${base}-managed`,
-    "hcloud-name": `${base}-${id}`,
-    "hcloud-server-type": id === "metabase"
-      ? opts["metabase-hcloud-server-type"]
-      : opts["hcloud-server-type"],
-  };
-}
-
-export function serverFallback(opts: Opts, id: string): Opts {
-  return {
-    ...utils.server(id),
-    ip: `192.0.2.${10 + utils.server(id).ordinal}`,
-    user: "root", sudoer: "root",
-    name: `${opts.profile}-${id}`,
-  };
-}
-
-export async function serverStep(opts: Opts, id: string): Promise<Opts> {
-  const tool = serverTools[id]!;
-  const dir = toolDir(opts, tool);
-  const data = serverData(opts, id);
-  const result = await tofuStep(opts, tool,
-    [spec(onceTemplate("hcloud"), `${dir}/main.tf`, data),
-     spec(template("tofu.server", "attach.tf"), `${dir}/attach.tf`, data)],
-    ["provider-compute"]);
-  const output = result["tofu/outputs"] as Record<string, unknown> | undefined;
-  const params = {
-    ...serverFallback(opts, id),
-    ...((output?.params as Record<string, unknown> | undefined) ?? {}),
-    ...(output && "private-ip" in output ? { "private-ip": output["private-ip"] } : {}),
-  };
-  if (failed(result)) return result;
-  return {
-    ...result,
-    "clickhouse/servers": { ...(result["clickhouse/servers"] ?? {}), [id]: params },
-  };
-}
-
-export const node1Step = (opts: Opts) => serverStep(opts, "node-1");
-export const node2Step = (opts: Opts) => serverStep(opts, "node-2");
-export const node3Step = (opts: Opts) => serverStep(opts, "node-3");
-export const metabaseStep = (opts: Opts) => serverStep(opts, "metabase");
-
-// Merge independently provisioned server outputs at Red's fan-in boundary.
-export function joinServerBranches(opts: Opts): Opts {
-  const branches = (opts["red/branches"] as Opts[] | undefined) ?? [];
-  const servers = Object.assign(
-    {},
-    ...branches.map((branch) => branch["clickhouse/servers"]).filter(Boolean),
-  ) as Record<string, unknown>;
-  if (Object.keys(servers).length === 0) return opts;
-  return {
-    ...opts,
-    "clickhouse/servers": { ...(opts["clickhouse/servers"] ?? {}), ...servers },
-  };
-}
-
-export async function firewallStep(original: Opts): Promise<Opts> {
-  const opts = joinServerBranches(original);
-  const dir = toolDir(opts, firewallTool);
-  return tofuStep(opts, firewallTool,
-    [spec(template("tofu.firewall", "main.tf"), `${dir}/main.tf`, opts)],
-    ["provider-compute"]);
+export async function loadInfrastructureStep(opts: Opts): Promise<Opts> {
+  if(opts['red/event']==='build'||opts['red/dry-run']) return infrastructureStep(opts);
+  const result:any=await read_deployment(opts,undefined,undefined,compute.requirements(opts));
+  if(result.status==='destroyed'&&opts['red/event']==='delete') return {...opts,'clickhouse/already-destroyed':true,'red/exit':0};
+  if(result.status!=='present') return {...opts,'red/exit':1,'red/err':'compute state unavailable; legacy monolithic state requires explicit migration'};
+  const output:Opts={...opts,'red/exit':0,'colors-compute/cluster':result.cluster,'colors-compute/shared':result.shared,'clickhouse/infrastructure-present?':true};
+  if(result.key?.private_key_path) output['ssh-private-key-path']=result.key.private_key_path;
+  return output;
 }
 
 export function dnsData(opts: Opts): Opts {
@@ -275,16 +152,8 @@ export async function dnsStep(opts: Opts): Promise<Opts> {
 }
 
 export function allServers(opts: Opts): Record<string, Opts> {
-  const stored = (opts["clickhouse/servers"] as Record<string, Opts> | undefined) ?? {};
-  const result: Record<string, Opts> = {};
-  for (const server of utils.servers) {
-    result[server.id] = {
-      ...serverFallback(opts, server.id),
-      ...server,
-      ...(stored[server.id] ?? {}),
-    };
-  }
-  return result;
+  const nodes=Object.fromEntries(compute.resolved(opts).map(node=>[node.node_id,node]));
+  return Object.fromEntries(utils.servers.map(app=>[app.id,{...app,...nodes[app['node-id']],'private-ip':nodes[app['node-id']].vpc_ip}]));
 }
 
 // Java's Double.toString, which is what Cheshire renders floats through and
@@ -334,11 +203,11 @@ function pretty(value: unknown, indent = 0): string {
 
 export function inventory(opts: Opts): string {
   const servers = allServers(opts);
-  const inventoryKey = String(managedSshData(opts)["managed-ssh-inventory-key"]);
+  const inventoryKey = opts["ssh-private-key-path"] ?? null;
   const hosts: Record<string, Opts> = {};
   for (const [id, s] of Object.entries(servers)) {
     hosts[utils.hostAlias(opts, id)] = {
-      ansible_host: s.ip, ansible_user: "root",
+      ansible_host: s.ip, ansible_user: s.user,
       private_ip: s["private-ip"], vpn_ip: s["vpn-ip"],
       server_role: s.role, server_ordinal: s.ordinal,
       ansible_ssh_private_key_file: inventoryKey,
@@ -466,7 +335,9 @@ export async function acceptanceStep(opts: Opts): Promise<Opts> {
 
 export async function driftStep(opts: Opts): Promise<Opts> {
   if (opts["red/event"] !== "create") return { ...opts, "red/exit": 0 };
-  const env = credentialEnv(opts, "provider-compute", "provider-dns");
+  const computeResult = await check_deployment_drift(opts, compute.TOPOLOGY, compute.requirements(opts));
+  if(computeResult.status!=='clean') return {...opts,'red/exit':1,'red/err':computeResult.errors?.join('\n')||'compute drift check failed'};
+  const env = credentialEnv(opts, "provider-dns");
   const results = await Promise.all(tofuTools.map(async (tool) =>
     [tool, await runtime.exec(
       ["tofu", `-chdir=${toolDir(opts, tool)}`, "plan", "-detailed-exitcode", "-input=false", "-no-color"],
@@ -480,4 +351,12 @@ export async function driftStep(opts: Opts): Promise<Opts> {
     };
   }
   return { ...opts, "red/exit": 0 };
+}
+
+export const ansibleLocalTool='clickhouse-ansible-local';
+export function sshConfigHosts(opts:Opts){const nodes=compute.resolved(opts),entry=nodes.find(node=>node.node_id==='clickhouse-0');return [{...entry,name:opts.profile},...nodes.map(node=>({...node,name:opts.profile+'-'+node.node_id}))];}
+export function ansibleLocalSpecs(opts:Opts):Spec[]{const data={...opts,'ssh-keygen':keyMode(opts).mode==='managed'},dir=toolDir(opts,ansibleLocalTool);return ['ansible.cfg','inventory.ini','main.yml'].map(name=>spec(template('ansible-local',name),dir+'/'+name,data));}
+export async function ansibleLocalStep(opts:Opts):Promise<Opts>{
+ if(opts['red/event']==='create'&&!opts['red/dry-run']){opts=sshConfig.preflight(opts);if(failed(opts))return opts;}
+ return ansible.ansibleWithSpec(opts,{dir:toolDir(opts,ansibleLocalTool),inventory:'inventory.ini',playbooks:{create:'main.yml',delete:'main.yml'},extraVars:{host_alias:opts.profile,ssh_hosts:sshConfigHosts(opts),block_state:opts['red/event']==='delete'?'absent':'present'}},ansibleLocalSpecs(opts));
 }

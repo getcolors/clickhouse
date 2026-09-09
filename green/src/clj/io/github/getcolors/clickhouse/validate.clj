@@ -2,10 +2,17 @@
   "Desired-state and credential validation over ONCE's provider registry."
   (:require [clojure.string :as str]
             [green.cli :as green-cli]
-            [io.github.getcolors.once.validate :as once-validate]))
+            [io.github.getcolors.once.validate :as once-validate]
+            [io.github.getcolors.compute :as library]
+            [io.github.getcolors.compute-planning :as planning]
+            [io.github.getcolors.compute-ssh :as ssh]
+            [io.github.getcolors.clickhouse.compute :as compute]))
 
-(def providers once-validate/providers)
-(def slots [:provider-compute :provider-dns :provider-backend])
+(defn- entry-keys [entry] (-> entry (update :required #(mapv keyword %)) (update :secrets #(mapv keyword %))))
+(def providers (assoc once-validate/providers
+  :provider-compute (into {} (map (fn [[k v]] [(name k) (entry-keys v)]) (:compute library/registry)))
+  :provider-backend (into {} (map (fn [[k v]] [(name k) (cond-> (entry-keys v) (= :r2 k) (assoc :tofu-env {:r2-access-key-id "AWS_ACCESS_KEY_ID" :r2-secret-access-key "AWS_SECRET_ACCESS_KEY"}))]) (:backend library/registry)))))
+(def slots [:provider-dns :provider-backend])
 (def own-required
   [:profile :workdir :domain :clickhouse-cluster-name :clickhouse-version
    :clickhouse-shards :clickhouse-replicas :clickhouse-keeper-nodes
@@ -13,8 +20,6 @@
    :clickhouse-metabase-user :clickhouse-dbt-user
    :metabase-image :metabase-postgres-image :metabase-port
    :dbt-core-version :dbt-clickhouse-version :dbt-project-dir
-   :metabase-hcloud-server-type
-   :hcloud-network-zone :hcloud-network-cidr :hcloud-subnet-cidr
    :wireguard-port :wireguard-network-cidr :wireguard-client-address])
 (def own-secrets
   [:clickhouse-admin-password :clickhouse-metabase-password
@@ -47,8 +52,6 @@
     (for [slot slots :let [p (get opts slot)]
           :when (not (contains? (get providers slot) p))]
       (str "unsupported " slot " " (pr-str p)))
-    (when-not (= "hcloud" (:provider-compute opts))
-      [":provider-compute must be hcloud"])
     (when-not (= "cloudflare" (:provider-dns opts))
       [":provider-dns must be cloudflare"])
     (when-not (boolean? (:compute-prevent-destroy opts))
@@ -67,7 +70,15 @@
     (when-not (and (= 1 (:clickhouse-shards opts))
                    (= 3 (:clickhouse-replicas opts))
                    (= 3 (:clickhouse-keeper-nodes opts)))
-      ["v1 requires one shard, three replicas, and three Keeper nodes"]))))
+      ["v1 requires one shard, three replicas, and three Keeper nodes"])
+    (try (let [selected (ssh/mode opts)]
+           (when (and (= "external" (:mode selected)) (placeholder? (:private_key_path selected)))
+             [":ssh-private-key-path is required for external SSH access"]))
+         (catch Exception _ []))
+    (library/validate opts)
+    (when (empty? (library/validate opts))
+      (try (planning/plan-deployment opts compute/topology (compute/requirements opts)) []
+           (catch Exception error [(.getMessage error)]))))))
 
 (defn secret-errors [opts]
   (concat

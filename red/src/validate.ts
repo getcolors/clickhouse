@@ -7,11 +7,15 @@
 
 import { parName } from "red/cli";
 import type { Opts } from "red/workflow";
-import { providers } from "package-once-red";
+import { providers as onceProviders } from "package-once-red";
+import { registry, validate as computeValidate, plan_deployment, keyMode } from 'colors-compute-red';
+import * as compute from './compute.ts';
+const data=registry;
+export const providers:any={...onceProviders,'provider-compute':data.compute,'provider-backend':{...data.backend,r2:{...data.backend.r2,tofuEnv:onceProviders['provider-backend'].r2.tofuEnv}}};
 
-export { providers };
 
-export const slots = ["provider-compute", "provider-dns", "provider-backend"];
+
+export const slots = ["provider-dns", "provider-backend"];
 
 export const ownRequired = [
   "profile", "workdir", "domain", "clickhouse-cluster-name", "clickhouse-version",
@@ -20,8 +24,6 @@ export const ownRequired = [
   "clickhouse-metabase-user", "clickhouse-dbt-user",
   "metabase-image", "metabase-postgres-image", "metabase-port",
   "dbt-core-version", "dbt-clickhouse-version", "dbt-project-dir",
-  "metabase-hcloud-server-type",
-  "hcloud-network-zone", "hcloud-network-cidr", "hcloud-subnet-cidr",
   "wireguard-port", "wireguard-network-cidr", "wireguard-client-address",
 ];
 
@@ -92,9 +94,6 @@ export function stateErrors(opts: Opts): string[] {
       errors.push(`unsupported :${slot} ${prStr(opts[slot])}`);
     }
   }
-  if (opts["provider-compute"] !== "hcloud") {
-    errors.push(":provider-compute must be hcloud");
-  }
   if (opts["provider-dns"] !== "cloudflare") {
     errors.push(":provider-dns must be cloudflare");
   }
@@ -118,6 +117,9 @@ export function stateErrors(opts: Opts): string[] {
         opts["clickhouse-keeper-nodes"] === 3)) {
     errors.push("v1 requires one shard, three replicas, and three Keeper nodes");
   }
+  try { const selected=keyMode(opts); if(selected.mode==='external'&&placeholder(selected.private_key_path)) errors.push(':ssh-private-key-path is required for external SSH access'); } catch {}
+  const computeErrors=computeValidate(opts); errors.push(...computeErrors);
+  if(!computeErrors.length) {try {plan_deployment(opts,compute.TOPOLOGY,compute.requirements(opts));} catch(error) {errors.push(String((error as Error).message));}}
   return errors;
 }
 

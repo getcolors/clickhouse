@@ -8,7 +8,6 @@ import json
 import math
 import os
 from decimal import Decimal
-from importlib.resources import files
 from pathlib import Path
 
 from blue import tofu
@@ -19,18 +18,19 @@ from blue.runtime import runtime
 from blue.scaffold import PRESERVE_JINJA_DELIMITERS, content_spec, scaffold
 from blue.workflow import StepError, failed
 
-from . import utils, validate
+from . import utils, validate, compute, ssh_config
+from colors_compute.ssh import _mode as key_mode
+from colors_compute.planning import plan_deployment
+from colors_compute.orchestration import orchestrate
+from colors_compute.inspection import read_deployment
+from colors_compute.drift import check_deployment_drift
 
-network_tool = "clickhouse-network"
-access_tool = "clickhouse-access"
-firewall_tool = "clickhouse-firewall"
-dns_tool = "clickhouse-dns"
-ansible_tool = "clickhouse-ansible"
-dbt_tool = "clickhouse-dbt"
-acceptance_tool = "clickhouse-acceptance"
-server_tools = {"node-1": "clickhouse-node-1", "node-2": "clickhouse-node-2",
-                "node-3": "clickhouse-node-3", "metabase": "clickhouse-metabase"}
-tofu_tools = [network_tool, access_tool, *server_tools.values(), firewall_tool, dns_tool]
+infrastructure_tool = 'clickhouse-infrastructure'
+dns_tool = 'clickhouse-dns'
+ansible_tool = 'clickhouse-ansible'
+dbt_tool = 'clickhouse-dbt'
+acceptance_tool = 'clickhouse-acceptance'
+tofu_tools = [dns_tool]
 
 ROOT = Path(__file__).parent / "resources"
 template_opts = PRESERVE_JINJA_DELIMITERS
@@ -44,13 +44,6 @@ def template(path: str, file: str) -> dict:
     name = f"tools/{path.replace('.', '/')}/{file}"
     return {"name": name, "content": (ROOT / name).read_text()}
 
-
-def once_template(provider: str) -> dict:
-    """ONCE's unmodified Hetzner compute template, resolved from the installed
-    package the way the airflow package resolves ONCE's compute templates."""
-    name = f"tools/tofu/{provider}/main.tf"
-    content = files("package_once_blue").joinpath(f"resources/{name}").read_text()
-    return {"name": f"once/{name}", "content": content}
 
 
 def spec(source: dict, target: str, data: dict) -> dict:
@@ -72,144 +65,42 @@ async def tofu_step(opts: dict, tool: str, specs: list[dict], slots: list[str]) 
                                      env=env or None)
 
 
-async def network_step(opts: dict) -> dict:
-    dir = tool_dir(opts, network_tool)
-    return await tofu_step(opts, network_tool,
-                           [spec(template("tofu.network", "main.tf"), f"{dir}/main.tf", opts)],
-                           ["provider-compute"])
+async def infrastructure_step(opts):
+    try:
+        planning = opts.get('blue/event') == 'build' or opts.get('blue/dry-run')
+        result = plan_deployment(opts, compute.TOPOLOGY, compute.requirements(opts)) if planning else await orchestrate(opts, compute.TOPOLOGY, compute.requirements(opts))
+        if planning:
+            for stage, documents in [('shared', result['documents']['shared']), *[('nodes/' + node, documents) for node, documents in result['documents']['nodes'].items()]]:
+                for name, document in documents.items():
+                    target = Path(tool_dir(opts, infrastructure_tool)) / stage / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(json.dumps(document, indent=2, sort_keys=True) + '\n')
+        if result['status'] not in ('ready', 'planned', 'destroyed'):
+            return {**opts, 'blue/exit': 1, 'blue/err': '\n'.join(result.get('errors', [])) or 'compute lifecycle refused; inspect deployment state before retrying'}
+        output = {**opts, 'blue/exit': 0}
+        if result.get('cluster'):
+            output.update({'colors-compute/cluster': result['cluster'], 'colors-compute/shared': result['shared']})
+        path = result.get('key', {}).get('private_key_path')
+        if path:
+            output['ssh-private-key-path'] = path.replace('$HOME/.ssh', '/home/build-placeholder/.ssh') if planning else path
+        return output
+    except Exception:
+        return {**opts, 'blue/exit': 1, 'blue/err': 'compute lifecycle refused; inspect deployment state before retrying'}
 
 
-placeholder_ssh_public_key = (
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHDKdUkY+SfRm6ttOz2EEZ2+i/zm+o1mpMOdMeGUr0t4"
-    " colors-build-placeholder")
-
-
-def managed_ssh_data(opts: dict) -> dict:
-    dir = tool_dir(opts, access_tool)
-    private_file = str(Path(dir, ".private", "id_ed25519").absolute())
-    public_file = Path(private_file + ".pub")
-    return {**opts,
-            "managed-ssh-key-name": f"{opts.get('hcloud-name')}-managed",
-            "managed-ssh-private-key": private_file,
-            "managed-ssh-inventory-key": "../clickhouse-access/.private/id_ed25519",
-            "managed-ssh-public-key": (public_file.read_text().strip()
-                                       if public_file.exists()
-                                       else placeholder_ssh_public_key)}
-
-
-async def ensure_ssh_agent(opts: dict) -> dict:
-    private_file = str(opts.get("managed-ssh-private-key"))
-    socket = f"/tmp/colors-{opts.get('profile')}-ssh-agent.sock"
-    env = {"SSH_AUTH_SOCK": socket}
-    listed = await runtime.exec(["ssh-add", "-l"], env=env)
-    if listed.exit != 0:
-        Path(socket).unlink(missing_ok=True)
-        started = await runtime.exec(["ssh-agent", "-a", socket])
-        if started.exit != 0:
-            raise StepError("failed to start managed SSH agent", exit=started.exit)
-    added = await runtime.exec(["ssh-add", private_file], env=env)
-    if added.exit == 0:
-        return {**opts, "clickhouse/process-env": env}
-    return {**opts, "blue/exit": added.exit, "blue/err": "failed to load managed SSH key"}
-
-
-async def access_step(opts: dict) -> dict:
-    data = managed_ssh_data(opts)
-    private_file = str(data["managed-ssh-private-key"])
-    key_result = None
-    if opts.get("blue/event") == "create" and not Path(private_file).exists():
-        Path(private_file).parent.mkdir(parents=True, exist_ok=True)
-        key_result = await runtime.exec(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
-             "-C", f"{opts.get('profile')} managed by Colors",
-             "-f", private_file])
-    data = managed_ssh_data(opts)
-    if opts.get("blue/event") == "create" and (key_result is None or key_result.exit == 0):
-        data = await ensure_ssh_agent(data)
-    if key_result is not None and key_result.exit != 0:
-        return {**opts, "blue/exit": key_result.exit, "blue/err": key_result.err}
-    if failed(data):
-        return data
-    dir = tool_dir(opts, access_tool)
-    return await tofu_step(data, access_tool,
-                           [spec(template("tofu.access", "main.tf"), f"{dir}/main.tf", data)],
-                           ["provider-compute"])
-
-
-def server_data(opts: dict, id: str) -> dict:
-    server = utils.server(id)
-    base = str(opts.get("hcloud-name"))
-    return {**opts,
-            "server-id": id, "server-role": server["role"],
-            "server-ordinal": server["ordinal"],
-            "vpn-ip": server["vpn-ip"], "private-ip": server["private-ip"],
-            "network-name": f"{base}-network",
-            "hcloud-ssh-keys": f"{base}-managed",
-            "hcloud-name": f"{base}-{id}",
-            "hcloud-server-type": (opts.get("metabase-hcloud-server-type")
-                                   if id == "metabase"
-                                   else opts.get("hcloud-server-type"))}
-
-
-def server_fallback(opts: dict, id: str) -> dict:
-    return {**utils.server(id),
-            "ip": f"192.0.2.{10 + utils.server(id)['ordinal']}",
-            "user": "root", "sudoer": "root",
-            "name": f"{opts.get('profile')}-{id}"}
-
-
-async def server_step(opts: dict, id: str) -> dict:
-    tool = server_tools[id]
-    dir = tool_dir(opts, tool)
-    data = server_data(opts, id)
-    result = await tofu_step(opts, tool,
-                             [spec(once_template("hcloud"), f"{dir}/main.tf", data),
-                              spec(template("tofu.server", "attach.tf"),
-                                   f"{dir}/attach.tf", data)],
-                             ["provider-compute"])
-    output = result.get("tofu/outputs")
-    params = {**server_fallback(opts, id),
-              **((output or {}).get("params") or {}),
-              **({"private-ip": output["private-ip"]}
-                 if output and "private-ip" in output else {})}
-    if failed(result):
-        return result
-    return {**result,
-            "clickhouse/servers": {**(result.get("clickhouse/servers") or {}), id: params}}
-
-
-async def node_1_step(opts: dict) -> dict:
-    return await server_step(opts, "node-1")
-
-
-async def node_2_step(opts: dict) -> dict:
-    return await server_step(opts, "node-2")
-
-
-async def node_3_step(opts: dict) -> dict:
-    return await server_step(opts, "node-3")
-
-
-async def metabase_step(opts: dict) -> dict:
-    return await server_step(opts, "metabase")
-
-
-def join_server_branches(opts: dict) -> dict:
-    """Merge independently provisioned server outputs at Blue's fan-in boundary."""
-    servers: dict = {}
-    for branch in opts.get("blue/branches") or []:
-        servers.update(branch.get("clickhouse/servers") or {})
-    if not servers:
-        return opts
-    return {**opts, "clickhouse/servers": {**(opts.get("clickhouse/servers") or {}), **servers}}
-
-
-async def firewall_step(original: dict) -> dict:
-    opts = join_server_branches(original)
-    dir = tool_dir(opts, firewall_tool)
-    return await tofu_step(opts, firewall_tool,
-                           [spec(template("tofu.firewall", "main.tf"), f"{dir}/main.tf", opts)],
-                           ["provider-compute"])
+async def load_infrastructure_step(opts):
+    if opts.get('blue/event') == 'build' or opts.get('blue/dry-run'):
+        return await infrastructure_step(opts)
+    result = await read_deployment(opts, None, None, compute.requirements(opts))
+    if result['status'] == 'destroyed' and opts.get('blue/event') == 'delete':
+        return {**opts, 'clickhouse/already-destroyed': True, 'blue/exit': 0}
+    if result['status'] != 'present':
+        return {**opts, 'blue/exit': 1, 'blue/err': 'compute state unavailable; legacy monolithic state requires explicit migration'}
+    output = {**opts, 'blue/exit': 0, 'colors-compute/cluster': result['cluster'], 'colors-compute/shared': result['shared'], 'clickhouse/infrastructure-present?': True}
+    path = result.get('key', {}).get('private_key_path')
+    if path:
+        output['ssh-private-key-path'] = path
+    return output
 
 
 def dns_data(opts: dict) -> dict:
@@ -226,12 +117,9 @@ async def dns_step(opts: dict) -> dict:
                            ["provider-dns"])
 
 
-def all_servers(opts: dict) -> dict:
-    stored = opts.get("clickhouse/servers") or {}
-    return {server["id"]: {**server_fallback(opts, server["id"]),
-                           **server,
-                           **(stored.get(server["id"]) or {})}
-            for server in utils.servers}
+def all_servers(opts):
+    nodes = {node['node_id']: node for node in compute.resolved(opts)}
+    return {app['id']: {**app, **nodes[app['node-id']], 'private-ip': nodes[app['node-id']]['vpc_ip']} for app in utils.servers}
 
 
 def _java_double(x: float) -> str:
@@ -284,9 +172,9 @@ def _pretty(value, indent=0):
 
 def inventory(opts: dict) -> str:
     servers = all_servers(opts)
-    inventory_key = str(managed_ssh_data(opts)["managed-ssh-inventory-key"])
+    inventory_key = opts.get("ssh-private-key-path")
     hosts = {utils.host_alias(opts, id): {
-        "ansible_host": s.get("ip"), "ansible_user": "root",
+        "ansible_host": s.get("ip"), "ansible_user": s.get("user"),
         "private_ip": s.get("private-ip"), "vpn_ip": s.get("vpn-ip"),
         "server_role": s.get("role"), "server_ordinal": s.get("ordinal"),
         "ansible_ssh_private_key_file": inventory_key,
@@ -418,7 +306,10 @@ async def acceptance_step(opts: dict) -> dict:
 async def drift_step(opts: dict) -> dict:
     if opts.get("blue/event") != "create":
         return {**opts, "blue/exit": 0}
-    env = credential_env(opts, "provider-compute", "provider-dns")
+    compute_drift = await check_deployment_drift(opts, compute.TOPOLOGY, compute.requirements(opts))
+    if compute_drift.get("status") != "clean":
+        return {**opts, "blue/exit": 1, "blue/err": "compute drift remains or could not be checked"}
+    env = credential_env(opts, "provider-dns")
 
     async def plan(tool: str):
         return (tool, await runtime.exec(
@@ -433,3 +324,22 @@ async def drift_step(opts: dict) -> dict:
         return {**opts, "blue/exit": result.exit,
                 "blue/err": f"OpenTofu drift remains in {tool}\n{result.out}{result.err}"}
     return {**opts, "blue/exit": 0}
+
+
+ansible_local_tool = 'clickhouse-ansible-local'
+
+def ssh_config_hosts(opts):
+    nodes = compute.resolved(opts)
+    entry = next(node for node in nodes if node['node_id'] == 'clickhouse-0')
+    return [{**entry,'name':opts['profile']}, *[{**node,'name':opts['profile']+'-'+node['node_id']} for node in nodes]]
+
+def ansible_local_specs(opts):
+    data = {**opts, 'ssh-keygen':key_mode(opts)['mode']=='managed'}
+    directory = tool_dir(opts,ansible_local_tool)
+    return [spec(template('ansible-local',name),directory+'/'+name,data) for name in ['ansible.cfg','inventory.ini','main.yml']]
+
+async def ansible_local_step(opts):
+    if opts.get('blue/event')=='create' and not opts.get('blue/dry-run'):
+        opts=ssh_config.preflight(opts)
+        if failed(opts): return opts
+    return await ansible_with_spec(opts,ansible_local_specs(opts),dir=tool_dir(opts,ansible_local_tool),inventory='inventory.ini',playbooks={'create':'main.yml','delete':'main.yml'},extra_vars={'host_alias':opts['profile'],'ssh_hosts':ssh_config_hosts(opts),'block_state':'absent' if opts.get('blue/event')=='delete' else 'present'})

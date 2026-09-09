@@ -1,42 +1,33 @@
 (ns io.github.getcolors.clickhouse.workflow-test
-  (:require [clojure.test :refer [deftest is]]
-            [io.github.getcolors.clickhouse.workflow :as workflow]))
-
-(def create {:green/event :create})
-(def delete {:green/event :delete})
-
-(deftest create-fans-out-and-joins
-  (is (= [:clickhouse/access]
-         (vec (rest (workflow/wire-fn :clickhouse/network create)))))
-  (is (= [:clickhouse/node-1 :clickhouse/node-2
-          :clickhouse/node-3 :clickhouse/metabase]
-         (vec (rest (workflow/wire-fn :clickhouse/access create)))))
-  (doseq [step [:clickhouse/node-1 :clickhouse/node-2
-                :clickhouse/node-3 :clickhouse/metabase]]
-    (is (= [:clickhouse/firewall]
-           (vec (rest (workflow/wire-fn step create))))))
-  (is (= [:clickhouse/clickhouse-config :clickhouse/metabase-config]
-         (vec (rest (workflow/wire-fn :clickhouse/wireguard create)))))
-  (is (= [:clickhouse/dbt]
-         (vec (rest (workflow/wire-fn :clickhouse/clickhouse-config create)))))
-  (is (= [:clickhouse/dbt]
-         (vec (rest (workflow/wire-fn :clickhouse/metabase-config create)))))
-  (is (= :clickhouse/drift
-         (second (workflow/wire-fn :clickhouse/acceptance create)))))
-
-(deftest delete-cleans-and-destroys-in-parallel
-  (is (= :clickhouse/dbt
-         (second (workflow/wire-fn :clickhouse/start delete))))
-  (is (= :clickhouse/ansible-cleanup
-         (second (workflow/wire-fn :clickhouse/acceptance delete))))
-  (is (= [:clickhouse/dns :clickhouse/firewall]
-         (vec (rest (workflow/wire-fn :clickhouse/ansible-cleanup delete)))))
-  (is (= [:clickhouse/node-1 :clickhouse/node-2
-          :clickhouse/node-3 :clickhouse/metabase]
-         (vec (rest (workflow/wire-fn :clickhouse/infrastructure-clean delete)))))
-  (doseq [step [:clickhouse/node-1 :clickhouse/node-2
-                :clickhouse/node-3 :clickhouse/metabase]]
-    (is (= [:clickhouse/access]
-           (vec (rest (workflow/wire-fn step delete))))))
-  (is (= [:clickhouse/network]
-         (vec (rest (workflow/wire-fn :clickhouse/access delete))))))
+  (:require [clojure.test :refer [deftest is]] [clojure.java.io :as io]
+            [green.workflow :as wf]
+            [io.github.getcolors.clickhouse.workflow :as workflow]
+            [io.github.getcolors.clickhouse.tools :as tools]
+            [io.github.getcolors.compute-orchestration :as orchestration]
+            [io.github.getcolors.compute-inspection :as inspection]
+            [io.github.getcolors.clickhouse.validate-test :refer [base]]))
+(defn nexts [step event] (vec (rest (workflow/wire-fn step {:green/event event}))))
+(deftest application-configuration-remains-parallel-after-compute
+  (is (= [:clickhouse/infrastructure] (nexts :clickhouse/start :create)))
+  (is (= [:clickhouse/clickhouse-config :clickhouse/metabase-config] (nexts :clickhouse/wireguard :create)))
+  (is (= [:clickhouse/dbt] (nexts :clickhouse/clickhouse-config :create)))
+  (is (= [:clickhouse/dbt] (nexts :clickhouse/metabase-config :create))))
+(deftest deletion-inspects-before-application-cleanup-and-compute-last
+  (is (= [:clickhouse/load-infrastructure] (nexts :clickhouse/start :delete)))
+  (is (= [:clickhouse/ansible-local] (nexts :clickhouse/ansible-cleanup :delete)))
+  (is (= [:clickhouse/infrastructure] (nexts :clickhouse/dns :delete)))
+  (is (= [] (nexts :clickhouse/infrastructure :delete))))
+(deftest unreadable-state-refuses-cleanup
+  (with-redefs [inspection/read-deployment (fn [& _] {:status "error"})]
+    (is (= 1 (:green/exit (tools/load-infrastructure-step (assoc base :green/event :delete)))))))
+(deftest native-build-is-offline-and-renders-four-library-node-states
+  (let [directory (.toFile (java.nio.file.Files/createTempDirectory "ch-build-" (make-array java.nio.file.attribute.FileAttribute 0)))]
+    (try
+      (with-redefs [orchestration/orchestrate (fn [& _] (throw (AssertionError. "build must not mutate compute")))
+                    inspection/read-deployment (fn [& _] (throw (AssertionError. "build must not inspect")))]
+        (let [result (wf/run workflow/workflow (assoc base :green/event :build :workdir (.getPath directory)))
+              files (file-seq directory)]
+          (is (= 0 (:green/exit result)) (:green/err result))
+          (is (= 4 (count (filter #(= "node.tf.json" (.getName %)) files))))
+          (is (some #(= "acceptance.py" (.getName %)) files))))
+      (finally (doseq [file (reverse (file-seq directory))] (io/delete-file file))))))

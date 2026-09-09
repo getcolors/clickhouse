@@ -1,0 +1,13 @@
+clickhouse_analytics:
+  target: prod
+  outputs:
+    prod:
+      type: clickhouse
+      host: clickhouse.fixture.example
+      port: 8123
+      user: dbt
+      password: "{{ env_var('COLORS_DBT_PASSWORD') }}"
+      schema: analytics
+      cluster: fixture
+      cluster_mode: true
+      secure: false

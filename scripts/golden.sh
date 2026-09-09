@@ -21,30 +21,37 @@ build() {
   echo "  ok — $variant"
 }
 
-build local
+build s3 COLORS_PAR_PROVIDER_BACKEND=s3
 build r2 COLORS_PAR_PROVIDER_BACKEND=r2
+state="$root/test/fixtures/optout.yml"
+build s3-optout COLORS_PAR_PROVIDER_BACKEND=s3
+build r2-optout COLORS_PAR_PROVIDER_BACKEND=r2
 
 profile=clickhouse-fixture
-base="$tmp/local/$profile"
-for tool in clickhouse-network clickhouse-access clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-metabase clickhouse-firewall clickhouse-dns clickhouse-ansible clickhouse-dbt clickhouse-acceptance; do
+base="$tmp/s3/$profile"
+for tool in clickhouse-infrastructure clickhouse-dns clickhouse-ansible clickhouse-dbt clickhouse-acceptance; do
   [ -d "$base/$tool" ] || { echo "missing stage $tool" >&2; exit 1; }
 done
-for tool in clickhouse-node-1 clickhouse-node-2 clickhouse-node-3 clickhouse-metabase; do
-  grep -q 'resource "hcloud_server" "node1"' "$base/$tool/main.tf"
-  grep -q 'hcloud_server.node1.id' "$base/$tool/attach.tf"
+for node in clickhouse-0 clickhouse-1 clickhouse-2 metabase-0; do
+  [ -d "$base/clickhouse-infrastructure/nodes/$node" ] || exit 1
 done
-grep -q 'data.hcloud_server.node_1.id' "$base/clickhouse-firewall/main.tf"
-grep -q 'data.hcloud_server.metabase.id' "$base/clickhouse-firewall/main.tf"
-firewall="$base/clickhouse-firewall/main.tf"
-if grep -Eq 'port[[:space:]]*=[[:space:]]*"(8123|9000|3000|9181|9234)"' "$firewall"; then
-  echo 'public firewall exposes a private service port' >&2; exit 1
-fi
+python3 - "$base" <<'CHECK'
+import json, pathlib, sys
+base=pathlib.Path(sys.argv[1])
+docs=[json.loads(p.read_text()) for p in (base/'clickhouse-infrastructure/shared').glob('*.tf.json')]
+for doc in docs:
+ for firewall in doc.get('resource',{}).get('hcloud_firewall',{}).values():
+  for rule in firewall.get('rule',[]):
+   assert rule.get('port') not in ['8123','9000','3000','9181','9234']
+inventory=json.loads((base/'clickhouse-ansible/inventory.json').read_text())
+hosts=inventory['all']['children']['managed']['hosts']
+assert len(hosts)==4
+assert all(h['ansible_ssh_private_key_file']=='/home/build-placeholder/.ssh/clickhouse-fixture' for h in hosts.values())
+CHECK
 dns="$base/clickhouse-dns/main.tf"
 grep -q 'proxied   = false' "$dns"
 grep -q 'metabase.fixture.example' "$dns"
 grep -q 'clickhouse.fixture.example' "$dns"
-grep -q 'resource "hcloud_ssh_key" "managed"' "$base/clickhouse-access/main.tf"
-grep -q 'fixture-managed' "$base/clickhouse-node-1/main.tf"
 for playbook in wireguard.yml clickhouse.yml metabase.yml cleanup.yml; do
   [ -f "$base/clickhouse-ansible/$playbook" ] || { echo "missing split playbook $playbook" >&2; exit 1; }
 done

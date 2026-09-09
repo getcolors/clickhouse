@@ -1,0 +1,11 @@
+{
+  "terraform" : {
+    "backend" : {
+      "s3" : {
+        "bucket" : "fixture-state",
+        "key" : "clickhouse-optout/clickhouse-dns.tfstate",
+        "region" : "eu-west-1"
+      }
+    }
+  }
+}

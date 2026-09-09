@@ -91,4 +91,3 @@
       retries: 30
       delay: 3
       until: replica_count.stdout | trim == '3'
-

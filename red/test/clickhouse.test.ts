@@ -1,3 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { run } from 'red/workflow';
+import { plan_deployment } from 'colors-compute-red';
+import * as compute from '../src/compute.ts';
 import { describe, expect, test } from "bun:test";
 import type { Opts } from "red/workflow";
 import * as tools from "../src/tools.ts";
@@ -13,29 +19,17 @@ describe("tools", () => {
       .toEqual(["10.21.0.1", "10.21.0.2", "10.21.0.3", "10.21.0.10"]);
   });
 
-  test("each server reuses ONCE's hcloud template", () => {
-    const template = tools.onceTemplate("hcloud");
-    expect(template.name).toBe("once/tools/tofu/hcloud/main.tf");
-    expect(template.content).toContain('resource "hcloud_server" "node1"');
+  test("inventory refuses unobserved live nodes", () => {
+    expect(()=>tools.inventory({profile:'p','red/event':'create'})).toThrow('compute inventory unavailable');
   });
-
-  test("server branches join without losing results", () => {
-    const joined = tools.joinServerBranches({
-      "red/branches": [
-        { "clickhouse/servers": { "node-1": { ip: "192.0.2.1" } } },
-        { "clickhouse/servers": { "node-2": { ip: "192.0.2.2" } } },
-        { "clickhouse/servers": { metabase: { ip: "192.0.2.10" } } },
-      ],
-    });
-    expect(new Set(Object.keys(joined["clickhouse/servers"] as Record<string, unknown>)))
-      .toEqual(new Set(["node-1", "node-2", "metabase"]));
-  });
-
-  test("inventory has four remote hosts", () => {
-    const text = tools.inventory({ profile: "p" });
-    expect(text).toMatch(/p-node-1/);
-    expect(text).toMatch(/p-metabase/);
-    expect(text).toMatch(/10.20.1.13/);
+  test("planned inventory preserves role mapping and private addresses", () => {
+    const opts={...base,'red/event':'build'};
+    const inventory=JSON.parse(tools.inventory(opts));
+    const hosts=inventory.all.children.managed.hosts;
+    expect(Object.keys(hosts)).toHaveLength(4);
+    expect(hosts['p-node-3'].vpn_ip).toBe('10.21.0.3');
+    expect(hosts['p-metabase'].server_role).toBe('metabase');
+    expect(hosts['p-node-3'].private_ip).toBeTruthy();
   });
 });
 
@@ -43,7 +37,7 @@ describe("tools", () => {
 
 const base: Opts = {
   profile: "p", workdir: ".colors", "provider-compute": "hcloud",
-  "provider-dns": "cloudflare", "provider-backend": "local",
+  "provider-dns": "cloudflare", "provider-backend": "s3", "s3-bucket":"fixture-state", "s3-region":"eu-west-1",
   "compute-prevent-destroy": true, domain: "example.com",
   "clickhouse-cluster-name": "p", "clickhouse-version": "26.3.17.56",
   "clickhouse-shards": 1, "clickhouse-replicas": 3, "clickhouse-keeper-nodes": 3,
@@ -54,7 +48,7 @@ const base: Opts = {
   "dbt-core-version": "1.11.12", "dbt-clickhouse-version": "1.10.1",
   "dbt-project-dir": "dbt", "metabase-hcloud-server-type": "cx23",
   "hcloud-name": "p", "hcloud-image": "ubuntu-24.04", "hcloud-server-type": "cx33",
-  "hcloud-location": "nbg1", "hcloud-ssh-keys": "key",
+  "hcloud-location": "nbg1", "hcloud-ssh-keys": "key", "ssh-private-key-path":"~/.ssh/id_ed25519",
   "hcloud-network-zone": "eu-central", "hcloud-network-cidr": "10.20.0.0/16",
   "hcloud-subnet-cidr": "10.20.1.0/24", "wireguard-port": 51820,
   "wireguard-network-cidr": "10.21.0.0/24", "wireguard-client-address": "10.21.0.254/32",
@@ -99,15 +93,8 @@ const next = (step: string, opts: Opts): string[] =>
 
 describe("workflow", () => {
   test("create fans out and joins", () => {
-    expect(next("clickhouse/network", create)).toEqual(["clickhouse/access"]);
-    expect(next("clickhouse/access", create)).toEqual([
-      "clickhouse/node-1", "clickhouse/node-2",
-      "clickhouse/node-3", "clickhouse/metabase",
-    ]);
-    for (const step of ["clickhouse/node-1", "clickhouse/node-2",
-                        "clickhouse/node-3", "clickhouse/metabase"]) {
-      expect(next(step, create)).toEqual(["clickhouse/firewall"]);
-    }
+    expect(next("clickhouse/start", create)).toEqual(["clickhouse/infrastructure"]);
+    expect(next("clickhouse/infrastructure", create)).toEqual(["clickhouse/dns"]);
     expect(next("clickhouse/wireguard", create))
       .toEqual(["clickhouse/clickhouse-config", "clickhouse/metabase-config"]);
     expect(next("clickhouse/clickhouse-config", create)).toEqual(["clickhouse/dbt"]);
@@ -115,19 +102,36 @@ describe("workflow", () => {
     expect(next("clickhouse/acceptance", create)).toEqual(["clickhouse/drift"]);
   });
 
-  test("delete cleans and destroys in parallel", () => {
-    expect(next("clickhouse/start", del)).toEqual(["clickhouse/dbt"]);
-    expect(next("clickhouse/acceptance", del)).toEqual(["clickhouse/ansible-cleanup"]);
-    expect(next("clickhouse/ansible-cleanup", del))
-      .toEqual(["clickhouse/dns", "clickhouse/firewall"]);
-    expect(next("clickhouse/infrastructure-clean", del)).toEqual([
-      "clickhouse/node-1", "clickhouse/node-2",
-      "clickhouse/node-3", "clickhouse/metabase",
-    ]);
-    for (const step of ["clickhouse/node-1", "clickhouse/node-2",
-                        "clickhouse/node-3", "clickhouse/metabase"]) {
-      expect(next(step, del)).toEqual(["clickhouse/access"]);
-    }
-    expect(next("clickhouse/access", del)).toEqual(["clickhouse/network"]);
+  test("delete loads inventory before application cleanup and compute destroy", () => {
+    expect(next('clickhouse/start',del)).toEqual(['clickhouse/load-infrastructure']);
+    expect(next('clickhouse/load-infrastructure',del)).toEqual(['clickhouse/dbt']);
+    expect(next('clickhouse/ansible-cleanup',del)).toEqual(['clickhouse/ansible-local']);
+    expect(next('clickhouse/ansible-local',del)).toEqual(['clickhouse/dns']);
+    expect(next('clickhouse/dns',del)).toEqual(['clickhouse/infrastructure']);
+    expect(next('clickhouse/infrastructure',del)).toEqual([]);
   });
 });
+
+ test('native full build uses shared library and preserves application inventory', async()=> {
+  const dir=mkdtempSync(join(tmpdir(),'clickhouse-build-'));
+  try {
+   for(const external of [false,true]) {
+    const opts:Opts={...base,workdir:join(dir,String(external)),'red/event':'build'};
+    if(!external) {delete opts['hcloud-ssh-keys'];delete opts['ssh-private-key-path'];}
+    const result=await run(workflow.clickhouseWorkflow,opts);
+    expect(result['red/exit']).toBe(0);
+    const inventory=JSON.parse(readFileSync(join(opts.workdir,'p/clickhouse-ansible/inventory.json'),'utf8'));
+    const host=inventory.all.children.managed.hosts['p-metabase'];
+    expect(host.server_ordinal).toBe(10);
+    expect(host.ansible_ssh_private_key_file).toBe(external?'~/.ssh/id_ed25519':'/home/build-placeholder/.ssh/p');
+   }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+ });
+ test('inventory takes observed user and refuses partial node collection',()=> {
+  const planned=plan_deployment(base,compute.TOPOLOGY,compute.requirements(base));
+  planned.cluster.nodes[0].user='ubuntu';planned.cluster.nodes[0].vpc_ip='10.20.1.99';
+  const opts={...base,'colors-compute/cluster':planned.cluster};
+  const host=JSON.parse(tools.inventory(opts)).all.children.managed.hosts['p-node-1'];
+  expect(host.ansible_user).toBe('ubuntu');expect(host.private_ip).toBe('10.20.1.99');
+  expect(()=>tools.allServers({...opts,'colors-compute/cluster':{nodes:planned.cluster.nodes.slice(0,3)}})).toThrow();
+ });

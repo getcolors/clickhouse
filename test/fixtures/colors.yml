@@ -2,7 +2,7 @@ profile: clickhouse-fixture
 workdir: .colors
 provider-compute: hcloud
 provider-dns: cloudflare
-provider-backend: local
+provider-backend: r2
 compute-prevent-destroy: true
 domain: fixture.example
 clickhouse-cluster-name: fixture
@@ -25,7 +25,7 @@ hcloud-name: fixture
 hcloud-image: ubuntu-24.04
 hcloud-server-type: cx33
 hcloud-location: nbg1
-hcloud-ssh-keys: fixture-key
+ssh-keygen: true
 metabase-hcloud-server-type: cx23
 hcloud-network-zone: eu-central
 hcloud-network-cidr: 10.20.0.0/16
@@ -35,3 +35,5 @@ wireguard-network-cidr: 10.21.0.0/24
 wireguard-client-address: 10.21.0.254/32
 r2-bucket: fixture
 r2-endpoint: https://fixture.r2.cloudflarestorage.com
+s3-bucket: fixture-state
+s3-region: eu-west-1

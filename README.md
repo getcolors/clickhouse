@@ -25,3 +25,20 @@ cd blue && uv run pytest
 cd green && ./green build
 cd green && ./green create --dry-run
 ```
+
+## Shared compute library
+
+The package uses colors-compute for its three ClickHouse nodes and one Metabase
+node. The library owns provider validation, R2 or S3 state, shared networking,
+SSH keys, node fan-out, and the complete inventory used by Ansible. Select
+`provider-compute` and supply the selected provider's settings. Compatible
+provider additions require a library dependency update only.
+
+Generated SSH keys live at `~/.ssh/<profile>`. External SSH access requires
+`ssh-private-key-path` and the provider's public-key or registration settings.
+The package keeps the WireGuard addresses and DNS records stable. Ansible uses
+the actual node login user and private network address returned by the library.
+
+Existing deployments with the former package-owned compute state require an
+explicit state migration. The lifecycle refuses that state before creating
+resources. Updating a launcher does not transfer state ownership.

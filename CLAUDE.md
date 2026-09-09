@@ -3,7 +3,7 @@
 ## What this is
 
 `clickhouse` is a tri-colour Package Skill (green, red, blue) provisioning
-three replicated ClickHouse/Keeper nodes and one Metabase server on Hetzner,
+three replicated ClickHouse/Keeper nodes and one Metabase server through colors-compute,
 plus Cloudflare DNS-only WireGuard names and a local dbt sample project. The
 first consumer is `../clickhouse-hetzner`.
 
@@ -41,10 +41,10 @@ Never run real create/delete without explicit authorization. Never edit
 ## The two-backend golden and parity axis
 
 The goldens have a second axis beside the fixture: the one
-`test/fixtures/colors.yml` is rendered under the **local** state backend and
+`test/fixtures/colors.yml` is rendered under the **s3** state backend and
 again under **r2**, produced by overlaying `COLORS_PAR_PROVIDER_BACKEND=r2` on
 the same file. The committed trees live at
-`test/resources/golden/{local,r2}/clickhouse-fixture/` and differ only in every
+`test/resources/golden/{s3,r2}/clickhouse-fixture/` and differ only in every
 stage's `backend.tf.json`. `scripts/golden.sh` checks green against both;
 `scripts/parity.sh` renders both variants through every colour and diffs the
 trees — and the colour template trees (`red/resources`, blue's embedded
@@ -52,25 +52,17 @@ trees — and the colour template trees (`red/resources`, blue's embedded
 
 ## Reuse surface
 
-The package consumes ONCE's provider registry and unmodified Hetzner compute
-template — in every colour: green by classpath keyword, red by resolving
-`package-once-red` and reading `red/resources/tools/tofu/hcloud/main.tf`, blue
-through `importlib.resources` on `package_once_blue`. Each server stage adds
-only private-network attachment HCL. The shared network, firewall, and DNS-only
-records are package-owned. Nothing upstream promises this internal surface;
-golden tests assert the reused resource address.
+The package declares ClickHouse and Metabase roles and application ingress in
+its compute module. colors-compute owns provider selection, remote state,
+shared resources, node fan-out, SSH key ownership, and result collection.
+Cloudflare DNS and the application playbooks remain package-owned.
 
 ## Coupling
 
-The package pins Green and ONCE in `green/deps.edn`, the Red SDK and
-`package-once-red` in `red/package.json`, and the Blue SDK and
-`package-once-blue` in `blue/pyproject.toml`. All three colours pin ONCE at the
-**same rev** (`98d3cfa`) — ONCE's own parity is what guarantees its colours
-agree per commit. This package deliberately stays on that older ONCE pin: a
-bump would adopt the SSH-keypair default and churn every golden, and is its own
-change. `blue/pyproject.toml` carries a `[tool.uv] override-dependencies`
-block because `package-once-blue@98d3cfa` pins an older Blue rev
-(`369c5aa`); the override makes this package's Blue pin win.
+All three implementations depend on the same immutable colors-compute commit.
+Provider additions belong in that library. A compatible provider requires only
+a dependency update here. ONCE supplies the non-compute DNS credential mapping.
+Keep the dependency manifests, locks, and launcher metadata consistent.
 
 Use `CLICKHOUSE_LIB_ROOT` (the repository root, for every colour; red also
 accepts the `red/` dir directly), `GREEN_LIB_ROOT`, and `ONCE_LIB_ROOT` for
@@ -81,8 +73,8 @@ launchers are copies, not symlinks.
 ## Safety
 
 Credentials use `COLORS_PAR_*` and never render. `COLORS_PAR_PROFILE` is
-refused. SSH and WireGuard private keys are generated and retained in gitignored
-local state or on their own hosts; `.colors/` is therefore sensitive.
+refused. The library owns generated SSH keys at ~/.ssh/<profile>. External SSH access
+requires ssh-private-key-path. WireGuard keys remain on the managed hosts.
 Public ingress is SSH and WireGuard UDP only. ClickHouse, Keeper, and Metabase
 ports must remain closed publicly.
 

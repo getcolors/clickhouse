@@ -35,8 +35,11 @@ build_variant() {
   diff -r "$tmp/$variant/green" "$tmp/$variant/blue"
 }
 
-build_variant local
-build_variant r2 COLORS_PAR_PROVIDER_BACKEND=r2
+for fixture in colors optout; do
+  state="$root/test/fixtures/$fixture.yml"
+  build_variant "s3-$fixture" COLORS_PAR_PROVIDER_BACKEND=s3
+  build_variant "r2-$fixture" COLORS_PAR_PROVIDER_BACKEND=r2
+done
 
 diff -r "$root/green/src/resources/io/github/getcolors/clickhouse" "$root/red/resources"
 diff -r "$root/green/src/resources/io/github/getcolors/clickhouse" "$root/blue/src/package_clickhouse_blue/resources"

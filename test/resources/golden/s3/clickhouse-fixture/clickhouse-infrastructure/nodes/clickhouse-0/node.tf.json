@@ -1,0 +1,67 @@
+{
+  "output": {
+    "params": {
+      "value": {
+        "ip": "${hcloud_server.node.ipv4_address}",
+        "name": "${hcloud_server.node.name}",
+        "network_attachment_id": "${hcloud_server_network.node.id}",
+        "node_id": "clickhouse-0",
+        "provider": "hcloud",
+        "provider_id": "${hcloud_server.node.id}",
+        "server_id": "${hcloud_server.node.id}",
+        "ssh_key_id": 12345,
+        "sudoer": "root",
+        "user": "root",
+        "vpc_id": "${hcloud_server_network.node.network_id}",
+        "vpc_ip": "${hcloud_server_network.node.ip}"
+      }
+    }
+  },
+  "provider": {
+    "hcloud": {}
+  },
+  "resource": {
+    "hcloud_server": {
+      "node": {
+        "firewall_ids": [
+          23456
+        ],
+        "image": "ubuntu-24.04",
+        "labels": {
+          "colors-profile": "clickhouse-fixture"
+        },
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "location": "nbg1",
+        "name": "fixture-clickhouse-0",
+        "public_net": {
+          "ipv4_enabled": true,
+          "ipv6_enabled": false
+        },
+        "server_type": "cx33",
+        "ssh_keys": [
+          12345
+        ]
+      }
+    },
+    "hcloud_server_network": {
+      "node": {
+        "ip": null,
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "network_id": 34567,
+        "server_id": "${hcloud_server.node.id}"
+      }
+    }
+  },
+  "terraform": {
+    "required_providers": {
+      "hcloud": {
+        "source": "hetznercloud/hcloud",
+        "version": "1.54.0"
+      }
+    }
+  }
+}

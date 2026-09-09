@@ -11,11 +11,18 @@ from __future__ import annotations
 import re
 
 from blue.cli import par_name
-from package_once_blue.validate import providers
+from package_once_blue.validate import providers as once_providers
+from colors_compute.contract import registry, validate as compute_validate
+from colors_compute.planning import plan_deployment
+from colors_compute.ssh import _mode
+from . import compute
+
+providers = {**once_providers, "provider-compute": registry()["compute"], "provider-backend": registry()["backend"]}
+providers["provider-backend"]["r2"]["tofu-env"] = once_providers["provider-backend"]["r2"]["tofu-env"]
 
 __all__ = ["providers"]
 
-slots = ["provider-compute", "provider-dns", "provider-backend"]
+slots = ["provider-dns", "provider-backend"]
 
 own_required = [
     "profile", "workdir", "domain", "clickhouse-cluster-name", "clickhouse-version",
@@ -24,8 +31,6 @@ own_required = [
     "clickhouse-metabase-user", "clickhouse-dbt-user",
     "metabase-image", "metabase-postgres-image", "metabase-port",
     "dbt-core-version", "dbt-clickhouse-version", "dbt-project-dir",
-    "metabase-hcloud-server-type",
-    "hcloud-network-zone", "hcloud-network-cidr", "hcloud-subnet-cidr",
     "wireguard-port", "wireguard-network-cidr", "wireguard-client-address",
 ]
 
@@ -92,8 +97,6 @@ def state_errors(opts: dict) -> list[str]:
     for slot in slots:
         if _entry(opts, slot) is None:
             errors.append(f"unsupported :{slot} {_pr_str(opts.get(slot))}")
-    if opts.get("provider-compute") != "hcloud":
-        errors.append(":provider-compute must be hcloud")
     if opts.get("provider-dns") != "cloudflare":
         errors.append(":provider-dns must be cloudflare")
     if not isinstance(opts.get("compute-prevent-destroy"), bool):
@@ -113,6 +116,19 @@ def state_errors(opts: dict) -> list[str]:
             and opts.get("clickhouse-replicas") == 3
             and opts.get("clickhouse-keeper-nodes") == 3):
         errors.append("v1 requires one shard, three replicas, and three Keeper nodes")
+    try:
+        selected = _mode(opts)
+        if selected['mode'] == 'external' and placeholder(selected.get('private_key_path')):
+            errors.append(':ssh-private-key-path is required for external SSH access')
+    except ValueError:
+        pass
+    compute_errors = compute_validate(opts)
+    errors.extend(compute_errors)
+    if not compute_errors:
+        try:
+            plan_deployment(opts, compute.TOPOLOGY, compute.requirements(opts))
+        except (ValueError, KeyError) as error:
+            errors.append(str(error))
     return errors
 
 

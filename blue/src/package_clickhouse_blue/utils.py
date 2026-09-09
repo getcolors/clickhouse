@@ -8,13 +8,13 @@ CONTRACT = 1
 
 servers = [
     {"id": "node-1", "role": "clickhouse", "ordinal": 1,
-     "vpn-ip": "10.21.0.1", "private-ip": "10.20.1.11"},
+     "vpn-ip": "10.21.0.1", "node-id": "clickhouse-0"},
     {"id": "node-2", "role": "clickhouse", "ordinal": 2,
-     "vpn-ip": "10.21.0.2", "private-ip": "10.20.1.12"},
+     "vpn-ip": "10.21.0.2", "node-id": "clickhouse-1"},
     {"id": "node-3", "role": "clickhouse", "ordinal": 3,
-     "vpn-ip": "10.21.0.3", "private-ip": "10.20.1.13"},
+     "vpn-ip": "10.21.0.3", "node-id": "clickhouse-2"},
     {"id": "metabase", "role": "metabase", "ordinal": 10,
-     "vpn-ip": "10.21.0.10", "private-ip": "10.20.1.20"},
+     "vpn-ip": "10.21.0.10", "node-id": "metabase-0"},
 ]
 
 

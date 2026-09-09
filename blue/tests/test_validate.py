@@ -3,7 +3,7 @@ from package_clickhouse_blue import validate
 
 base = {
     "profile": "p", "workdir": ".colors", "provider-compute": "hcloud",
-    "provider-dns": "cloudflare", "provider-backend": "local",
+    "provider-dns": "cloudflare", "provider-backend": "r2", "r2-bucket": "states", "r2-endpoint": "https://example.r2.cloudflarestorage.com",
     "compute-prevent-destroy": True, "domain": "example.com",
     "clickhouse-cluster-name": "p", "clickhouse-version": "26.3.17.56",
     "clickhouse-shards": 1, "clickhouse-replicas": 3, "clickhouse-keeper-nodes": 3,
@@ -14,7 +14,7 @@ base = {
     "dbt-core-version": "1.11.12", "dbt-clickhouse-version": "1.10.1",
     "dbt-project-dir": "dbt", "metabase-hcloud-server-type": "cx23",
     "hcloud-name": "p", "hcloud-image": "ubuntu-24.04", "hcloud-server-type": "cx33",
-    "hcloud-location": "nbg1", "hcloud-ssh-keys": "key",
+    "hcloud-location": "nbg1", "hcloud-ssh-keys": "key", "ssh-private-key-path": "/operator/key",
     "hcloud-network-zone": "eu-central", "hcloud-network-cidr": "10.20.0.0/16",
     "hcloud-subnet-cidr": "10.20.1.0/24", "wireguard-port": 51820,
     "wireguard-network-cidr": "10.21.0.0/24", "wireguard-client-address": "10.21.0.254/32",
