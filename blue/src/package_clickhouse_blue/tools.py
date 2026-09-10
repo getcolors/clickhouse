@@ -92,6 +92,8 @@ async def load_infrastructure_step(opts):
     if opts.get('blue/event') == 'build' or opts.get('blue/dry-run'):
         return await infrastructure_step(opts)
     result = await read_deployment(opts, {**os.environ, **storage.aws_env(opts)}, None, compute.requirements(opts))
+    if opts.get('blue/event') == 'delete' and opts.get('s3-bucket-mode') == 'managed' and result['status'] != 'present':
+        return {**opts, 'clickhouse/finalize-only': True, 'blue/exit': 0}
     if result['status'] == 'destroyed' and opts.get('blue/event') == 'delete':
         return {**opts, 'clickhouse/finalize-only' if opts.get('s3-bucket-mode') == 'managed' else 'clickhouse/already-destroyed': True, 'blue/exit': 0}
     if result['status'] != 'present':

@@ -39,3 +39,12 @@
     (is (= [:clickhouse/backend-finalize] (vec (rest (workflow/wire-fn :clickhouse/infrastructure opts)))))
     (with-redefs [inspection/read-deployment (fn [& _] {:status "destroyed"})]
       (is (:clickhouse/finalize-only (tools/load-infrastructure-step opts))))))
+
+(deftest managed-delete-defers-unavailable-inventory-to-authoritative-finalizer
+  (let [opts (assoc base :green/event :delete :s3-bucket-mode "managed")]
+    (doseq [status ["destroyed" "absent" "error"]]
+      (with-redefs [inspection/read-deployment (fn [& _] {:status status})]
+        (is (:clickhouse/finalize-only (tools/load-infrastructure-step opts)))
+        (is (= 1 (:green/exit (tools/load-infrastructure-step (assoc opts :green/event :describe)))))
+        (when (not= status "destroyed")
+          (is (= 1 (:green/exit (tools/load-infrastructure-step (assoc opts :s3-bucket-mode "external"))))))))))

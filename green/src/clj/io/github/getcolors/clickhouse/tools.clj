@@ -83,11 +83,13 @@
 (defn load-infrastructure-step [opts]
   (if (or (= :build (:green/event opts)) (:green/dry-run opts)) (infrastructure-step opts)
       (let [result (inspection/read-deployment opts (merge (into {} (System/getenv)) (storage/aws-env opts)) {} (compute/requirements opts))]
-        (case (:status result)
+        (if (and (= :delete (:green/event opts)) (= "managed" (:s3-bucket-mode opts)) (not= "present" (:status result)))
+          (assoc opts :clickhouse/finalize-only true :green/exit 0)
+          (case (:status result)
           "destroyed" (if (= :delete (:green/event opts)) (assoc opts (if (= "managed" (:s3-bucket-mode opts)) :clickhouse/finalize-only :clickhouse/already-destroyed) true :green/exit 0) (refuse opts ["compute inventory unavailable"]))
           "present" (cond-> (assoc opts :colors-compute/cluster (:cluster result) :colors-compute/shared (:shared result) :clickhouse/infrastructure-present? true :green/exit 0)
                       (get-in result [:key :private_key_path]) (assoc :ssh-private-key-path (get-in result [:key :private_key_path])))
-          (refuse opts ["compute state unavailable; legacy monolithic state requires explicit migration"])))))
+          (refuse opts ["compute state unavailable; legacy monolithic state requires explicit migration"]))))))
 
 (defn dns-data [opts]
   (assoc opts :cloudflare-zone (or (:cloudflare-zone opts) (:domain opts))

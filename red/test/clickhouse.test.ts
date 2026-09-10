@@ -151,3 +151,23 @@ test('managed storage deletion precedes compute and backend finalization',()=>{
   expect(workflow.wireFn('clickhouse/storage',opts)?.slice(1)).toEqual(['clickhouse/infrastructure']);
   expect(workflow.wireFn('clickhouse/infrastructure',opts)?.slice(1)).toEqual(['clickhouse/backend-finalize']);
 });
+
+test('managed delete defers unavailable inventory to the authoritative finalizer',async()=>{
+  const library=await import('colors-compute-red');
+  const {spyOn}=await import('bun:test');
+  const inspect=spyOn(library,'read_deployment');
+  const finalize=spyOn(library,'finalize_backend');
+  const opts={profile:'p','red/event':'delete','s3-bucket-mode':'managed'};
+  try {
+    for(const status of ['destroyed','absent','error']) {
+      inspect.mockResolvedValue({status} as any);
+      expect((await tools.loadInfrastructureStep(opts))['clickhouse/finalize-only']).toBe(true);
+      expect((await tools.loadInfrastructureStep({...opts,'red/event':'describe'}))['red/exit']).toBe(1);
+      if(status!=='destroyed') expect((await tools.loadInfrastructureStep({...opts,'s3-bucket-mode':'external'}))['red/exit']).toBe(1);
+    }
+    finalize.mockResolvedValue({status:'error'} as any);
+    expect((await workflow.backendFinalizeStep(opts))['red/exit']).toBe(1);
+    finalize.mockResolvedValue({status:'absent'} as any);
+    expect((await workflow.backendFinalizeStep(opts))['red/exit']).toBe(0);
+  } finally {inspect.mockRestore();finalize.mockRestore();}
+});

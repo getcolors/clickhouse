@@ -140,6 +140,7 @@ export async function infrastructureStep(opts: Opts): Promise<Opts> {
 export async function loadInfrastructureStep(opts: Opts): Promise<Opts> {
   if(opts['red/event']==='build'||opts['red/dry-run']) return infrastructureStep(opts);
   const result:any=await read_deployment(opts,{...process.env,...storage.awsEnv(opts)},undefined,compute.requirements(opts));
+  if(opts['red/event']==='delete'&&opts['s3-bucket-mode']==='managed'&&result.status!=='present') return {...opts,'clickhouse/finalize-only':true,'red/exit':0};
   if(result.status==='destroyed'&&opts['red/event']==='delete') return {...opts,[opts['s3-bucket-mode']==='managed'?'clickhouse/finalize-only':'clickhouse/already-destroyed']:true,'red/exit':0};
   if(result.status!=='present') return {...opts,'red/exit':1,'red/err':'compute state unavailable; legacy monolithic state requires explicit migration'};
   const output:Opts={...opts,'red/exit':0,'colors-compute/cluster':result.cluster,'colors-compute/shared':result.shared,'clickhouse/infrastructure-present?':true};
