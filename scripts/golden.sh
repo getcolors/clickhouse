@@ -58,6 +58,9 @@ for path in root.glob('*.yml'):
     text = path.read_text()
     assert '<%' not in text and '[%' not in text, path
     yaml.safe_load(text)
+storage = (root.parent / 'clickhouse-storage/main.tf').read_text()
+assert 'blocked_encryption_types = ["SSE-C"]' in storage, 'Keep AWS default SSE-C blocking explicit'
+assert 'bucket_key_enabled = false' in storage, 'Make the AES256 bucket-key default explicit'
 assert "ON CLUSTER 'clickhouse-aws'" in (root / 'clickhouse-rehearsal.yml').read_text(), 'Hyphenated cluster must be SQL quoted'
 assert (root / 'wireguard.yml').read_text().count('MTU = 1420') == 2, 'Both tunnel ends need Internet-safe MTU'
 for name in ['clickhouse-backup.py', 'clickhouse-monitor.py']:
