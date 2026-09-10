@@ -5,7 +5,7 @@
 #   "colors-compute-blue @ git+https://github.com/getcolors/colors-compute.git@b98d88b0afe482b7033c5760db6d6ae4a43eec11#subdirectory=blue","package-clickhouse-blue", "blue", "package-once-blue"]
 #
 # [tool.uv.sources]
-# package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "6472da23e91c30230e97f168891de927ff1cf878", subdirectory = "blue" }
+# package-clickhouse-blue = { git = "https://github.com/getcolors/clickhouse.git", rev = "990e3d17fe92f3b31b95ef66097175ca6c6853cb", subdirectory = "blue" }
 # blue = { git = "https://github.com/getcolors/blue.git", rev = "290f313ead5ca162875c33a049c880da017eae09" }
 # package-once-blue = { git = "https://github.com/getcolors/once.git", subdirectory = "blue", rev = "98d3cfa2c743b89a72bac0252c258f9edeedcad7" }
 #
