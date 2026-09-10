@@ -1,0 +1,131 @@
+- name: Prove replication and prepare a durable probe
+  hosts: clickhouse
+  become: true
+  tasks:
+    - name: Generate fresh replication probe
+      ansible.builtin.set_fact:
+        replication_probe_id: "{{ 999999999999999999 | random(start=3) }}"
+      run_once: true
+    - name: Create probe table on every replica with UUID based Keeper paths
+      ansible.builtin.command:
+        argv:
+          - clickhouse-client
+          - --user
+          - admin
+          - --password
+          - "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}"
+          - --query
+          - "CREATE TABLE IF NOT EXISTS default.colors_acceptance ON CLUSTER 'fixture' (id UInt64) ENGINE = ReplicatedMergeTree ORDER BY id"
+      run_once: true
+      no_log: true
+    - name: Write probe through node zero
+      ansible.builtin.command:
+        argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "INSERT INTO default.colors_acceptance VALUES ({{ replication_probe_id }})"]
+      run_once: true
+      no_log: true
+    - name: Wait for actual replicated rows on every node
+      ansible.builtin.command:
+        argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "SELECT count() FROM default.colors_acceptance WHERE id = {{ replication_probe_id }}"]
+      register: replicated_rows
+      retries: 30
+      delay: 2
+      until: replicated_rows.stdout | trim == '1'
+      changed_when: false
+      no_log: true
+
+- name: Verify backup and restore beside the live database
+  hosts: "{{ groups['clickhouse'][0] }}"
+  become: true
+  tasks:
+    - name: Create backup and verify S3 object count and byte total
+      ansible.builtin.command: /usr/local/sbin/clickhouse-backup backup
+      register: backup_evidence
+    - ansible.builtin.debug:
+        var: backup_evidence.stdout
+    - name: Restore completed set and prove row equality and zero Keeper collisions
+      ansible.builtin.command: /usr/local/sbin/clickhouse-backup restore
+      register: restore_evidence
+    - ansible.builtin.debug:
+        var: restore_evidence.stdout
+
+- name: Drill replica loss with unconditional recovery
+  hosts: "{{ groups['clickhouse'][1] }}"
+  become: true
+  tasks:
+    - name: Generate a fresh probe for this replica loss drill
+      ansible.builtin.set_fact:
+        drill_id: "{{ 999999999999999999 | random(start=3) }}"
+    - name: Stop one replica while the other two serve writes and reads
+      block:
+        - name: Stop second replica
+          ansible.builtin.systemd_service:
+            name: clickhouse-server
+            state: stopped
+        - name: Write with one replica offline
+          ansible.builtin.command:
+            argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "INSERT INTO default.colors_acceptance VALUES ({{ drill_id }})"]
+          delegate_to: "{{ groups['clickhouse'][0] }}"
+          no_log: true
+        - name: Read write on third replica while second is offline
+          ansible.builtin.command:
+            argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "SELECT count() FROM default.colors_acceptance WHERE id = {{ drill_id }}"]
+          delegate_to: "{{ groups['clickhouse'][2] }}"
+          register: drill_read
+          retries: 30
+          delay: 2
+          until: drill_read.stdout | trim == '1'
+          no_log: true
+      always:
+        - name: Recover second replica even after failed probe
+          ansible.builtin.systemd_service:
+            name: clickhouse-server
+            state: started
+        - name: Wait for recovered data and drained queue
+          ansible.builtin.command:
+            argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "SELECT (SELECT count() FROM default.colors_acceptance WHERE id = {{ drill_id }}) = 1 AND (SELECT count() FROM system.replication_queue) = 0"]
+          register: recovery
+          retries: 60
+          delay: 5
+          until: recovery.stdout | trim == '1'
+          changed_when: false
+          no_log: true
+
+- name: Verify private role firewall denies Keeper from Metabase
+  hosts: metabase
+  become: true
+  tasks:
+    - name: Check allowed HTTP and forbidden Keeper ports over private network
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import socket
+            host = "{{ hostvars[groups['clickhouse'][0]].private_ip }}"
+            with socket.create_connection((host, 8123), timeout=5):
+                pass
+            try:
+                connection = socket.create_connection((host, 9181), timeout=5)
+            except (TimeoutError, ConnectionRefusedError):
+                pass
+            else:
+                connection.close()
+                raise SystemExit("Keeper unexpectedly reachable from Metabase private interface")
+            print("PASS: ClickHouse HTTP allowed; Keeper denied from Metabase")
+      changed_when: false
+      when: "'hcloud' == 'aws'"
+
+- name: Publish measured health after the rehearsal
+  hosts: clickhouse
+  become: true
+  tasks:
+    - name: Verify all monitor thresholds and publish health JSON
+      ansible.builtin.command: /usr/local/sbin/clickhouse-monitor
+      register: monitor_result
+      retries: 12
+      delay: 5
+      until: monitor_result.rc == 0
+      changed_when: false
+    - name: Report measured health
+      ansible.builtin.debug:
+        var: monitor_result.stdout

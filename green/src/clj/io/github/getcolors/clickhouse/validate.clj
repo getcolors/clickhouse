@@ -43,9 +43,22 @@
 (def version-re #"^[0-9]+(?:\.[0-9]+){3}$")
 (defn positive-int? [x] (and (integer? x) (pos? x)))
 
+(defn storage-errors [opts]
+  (concat
+    (when (and (contains? opts :clickhouse-storage-managed) (not (boolean? (:clickhouse-storage-managed opts)))) [":clickhouse-storage-managed must be true or false"])
+    (when (or (true? (:clickhouse-storage-managed opts)) (:clickhouse-backup-bucket opts))
+      (let [bucket (:clickhouse-backup-bucket opts) region (:clickhouse-backup-region opts)
+            prefix (or (:clickhouse-backup-prefix opts) (str (:profile opts) "/clickhouse"))]
+        (concat
+          (when-not (and (string? bucket) (re-matches #"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" bucket)) [":clickhouse-backup-bucket must be a valid S3 bucket name"])
+          (when-not (and (string? region) (re-matches #"[a-z]{2}(?:-[a-z]+)+-[0-9]" region)) [":clickhouse-backup-region must be an AWS region"])
+          (when (or (= bucket (:s3-bucket opts)) (= bucket (:r2-bucket opts))) [":clickhouse-backup-bucket must not be the OpenTofu state bucket"])
+          (when-not (and (string? prefix) (re-matches #"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*" prefix)) [":clickhouse-backup-prefix must contain safe nonempty path segments"]))))))
+
 (defn state-errors [opts]
   (vec
    (concat
+    (storage-errors opts)
     (map #(str % " is required")
          (missing opts (concat own-required (slot-keys opts :required))))
     (for [slot slots :let [p (get opts slot)]

@@ -11,14 +11,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from blue import tofu
-from blue.ansible import ansible_step, ansible_with_spec
+from blue.ansible import ansible_step, ansible_with_spec, parse_recap
 from blue.cli import stage_dir
 from blue.providers import tool_env
 from blue.runtime import runtime
 from blue.scaffold import PRESERVE_JINJA_DELIMITERS, content_spec, scaffold
 from blue.workflow import StepError, failed
 
-from . import utils, validate, compute, ssh_config
+from . import utils, validate, compute, ssh_config, storage
 from colors_compute.ssh import _mode as key_mode
 from colors_compute.planning import plan_deployment
 from colors_compute.orchestration import orchestrate
@@ -30,7 +30,7 @@ dns_tool = 'clickhouse-dns'
 ansible_tool = 'clickhouse-ansible'
 dbt_tool = 'clickhouse-dbt'
 acceptance_tool = 'clickhouse-acceptance'
-tofu_tools = [dns_tool]
+tofu_tools = [dns_tool, storage.tool]
 
 ROOT = Path(__file__).parent / "resources"
 template_opts = PRESERVE_JINJA_DELIMITERS
@@ -68,7 +68,7 @@ async def tofu_step(opts: dict, tool: str, specs: list[dict], slots: list[str]) 
 async def infrastructure_step(opts):
     try:
         planning = opts.get('blue/event') == 'build' or opts.get('blue/dry-run')
-        result = plan_deployment(opts, compute.TOPOLOGY, compute.requirements(opts)) if planning else await orchestrate(opts, compute.TOPOLOGY, compute.requirements(opts))
+        result = plan_deployment(opts, compute.TOPOLOGY, compute.requirements(opts)) if planning else await orchestrate(opts, compute.TOPOLOGY, compute.requirements(opts), {**os.environ, **storage.aws_env(opts)})
         if planning:
             for stage, documents in [('shared', result['documents']['shared']), *[('nodes/' + node, documents) for node, documents in result['documents']['nodes'].items()]]:
                 for name, document in documents.items():
@@ -91,9 +91,9 @@ async def infrastructure_step(opts):
 async def load_infrastructure_step(opts):
     if opts.get('blue/event') == 'build' or opts.get('blue/dry-run'):
         return await infrastructure_step(opts)
-    result = await read_deployment(opts, None, None, compute.requirements(opts))
+    result = await read_deployment(opts, {**os.environ, **storage.aws_env(opts)}, None, compute.requirements(opts))
     if result['status'] == 'destroyed' and opts.get('blue/event') == 'delete':
-        return {**opts, 'clickhouse/already-destroyed': True, 'blue/exit': 0}
+        return {**opts, 'clickhouse/finalize-only' if opts.get('s3-bucket-mode') == 'managed' else 'clickhouse/already-destroyed': True, 'blue/exit': 0}
     if result['status'] != 'present':
         return {**opts, 'blue/exit': 1, 'blue/err': 'compute state unavailable; legacy monolithic state requires explicit migration'}
     output = {**opts, 'blue/exit': 0, 'colors-compute/cluster': result['cluster'], 'colors-compute/shared': result['shared'], 'clickhouse/infrastructure-present?': True}
@@ -104,7 +104,9 @@ async def load_infrastructure_step(opts):
 
 
 def dns_data(opts: dict) -> dict:
-    return {**opts,
+    return {**opts, "cloudflare-zone": opts.get("cloudflare-zone", opts.get("domain")),
+            "clickhouse-backup-region": opts.get("clickhouse-backup-region", "us-east-1"),
+            "clickhouse-backup-prefix": opts.get("clickhouse-backup-prefix", opts["profile"] + "/clickhouse"),
             "metabase-host": utils.fqdn(opts, "metabase"),
             "clickhouse-host": utils.fqdn(opts, "clickhouse")}
 
@@ -195,6 +197,8 @@ def inventory(opts: dict) -> str:
 def ansible_data(opts: dict) -> dict:
     address = opts.get("wireguard-client-address")
     return {**opts,
+            "clickhouse-backup-region": opts.get("clickhouse-backup-region", "us-east-1"),
+            "clickhouse-backup-prefix": opts.get("clickhouse-backup-prefix", opts["profile"] + "/clickhouse"),
             "metabase-host": utils.fqdn(opts, "metabase"),
             "clickhouse-host": utils.fqdn(opts, "clickhouse"),
             "local-wg-address": ("" if address is None else str(address)).split("/")[0]}
@@ -213,6 +217,11 @@ def ansible_specs(opts: dict) -> list[dict]:
                  f"{dir}/clickhouse-config.xml", data),
             spec(template("ansible", "clickhouse-users.xml"),
                  f"{dir}/clickhouse-users.xml", data),
+            spec(template("ansible", "clickhouse-backup.xml"), f"{dir}/clickhouse-backup.xml", data),
+            spec(template("ansible", "clickhouse-monitor.py"), f"{dir}/clickhouse-monitor.py", data),
+            spec(template("ansible", "clickhouse-backup.py"), f"{dir}/clickhouse-backup.py", data),
+            spec(template("ansible", "clickhouse-backup.yml"), f"{dir}/clickhouse-backup.yml", data),
+            spec(template("ansible", "clickhouse-rehearsal.yml"), f"{dir}/clickhouse-rehearsal.yml", data),
             spec(template("ansible", "docker-compose.yml"),
                  f"{dir}/docker-compose.yml", data),
             raw_spec(f"{dir}/inventory.json", inventory(opts))]
@@ -225,6 +234,9 @@ def ansible_render_step(opts: dict) -> dict:
 async def ansible_playbook_step(opts: dict, playbook: str, recap_key: str) -> dict:
     if opts.get("blue/event") == "build":
         return {**opts, "blue/exit": 0}
+    if storage.managed(opts):
+        result = await runtime.exec(['ansible-playbook', '-i', 'inventory.json', playbook], cwd=tool_dir(opts, ansible_tool), env=storage.credential_env(opts), timeout_ms=7200000)
+        return {**opts, 'blue/exit': result.exit, recap_key: parse_recap(result.out), **({'blue/err': 'Ansible convergence failed: ' + result.out + result.err} if result.exit else {})}
     return await ansible_step(opts, dir=tool_dir(opts, ansible_tool),
                               inventory="inventory.json",
                               playbooks={"create": playbook},
@@ -317,7 +329,7 @@ async def drift_step(opts: dict) -> dict:
              "plan", "-detailed-exitcode", "-input=false", "-no-color"],
             env=env))
 
-    results = await asyncio.gather(*(plan(tool) for tool in tofu_tools))
+    results = await asyncio.gather(*(plan(tool) for tool in tofu_tools if tool != storage.tool or storage.managed(opts)))
     bad = next(((tool, result) for tool, result in results if result.exit != 0), None)
     if bad:
         tool, result = bad
@@ -343,3 +355,9 @@ async def ansible_local_step(opts):
         opts=ssh_config.preflight(opts)
         if failed(opts): return opts
     return await ansible_with_spec(opts,ansible_local_specs(opts),dir=tool_dir(opts,ansible_local_tool),inventory='inventory.ini',playbooks={'create':'main.yml','delete':'main.yml'},extra_vars={'host_alias':opts['profile'],'ssh_hosts':ssh_config_hosts(opts),'block_state':'absent' if opts.get('blue/event')=='delete' else 'present'})
+
+
+async def rehearsal_step(opts):
+    if not opts.get('clickhouse-backup-bucket'):
+        return {**opts, 'blue/exit': 0}
+    return await ansible_playbook_step(opts, 'clickhouse-rehearsal.yml', 'clickhouse/rehearsal-recap')

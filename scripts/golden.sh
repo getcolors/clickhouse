@@ -26,6 +26,8 @@ build r2 COLORS_PAR_PROVIDER_BACKEND=r2
 state="$root/test/fixtures/optout.yml"
 build s3-optout COLORS_PAR_PROVIDER_BACKEND=s3
 build r2-optout COLORS_PAR_PROVIDER_BACKEND=r2
+state="$root/test/fixtures/aws.yml"
+build aws COLORS_PAR_PROVIDER_BACKEND=s3
 
 profile=clickhouse-fixture
 base="$tmp/s3/$profile"
@@ -48,6 +50,19 @@ hosts=inventory['all']['children']['managed']['hosts']
 assert len(hosts)==4
 assert all(h['ansible_ssh_private_key_file']=='/home/build-placeholder/.ssh/clickhouse-fixture' for h in hosts.values())
 CHECK
+# Parse the enabled backup path too; unresolved scaffold tags are invalid YAML.
+python3 - "$tmp/aws/clickhouse-fixture/clickhouse-ansible" <<'CHECK'
+import pathlib, sys, yaml
+root = pathlib.Path(sys.argv[1])
+for path in root.glob('*.yml'):
+    text = path.read_text()
+    assert '<%' not in text and '[%' not in text, path
+    yaml.safe_load(text)
+assert "ON CLUSTER 'clickhouse-aws'" in (root / 'clickhouse-rehearsal.yml').read_text(), 'Hyphenated cluster must be SQL quoted'
+assert (root / 'wireguard.yml').read_text().count('MTU = 1420') == 2, 'Both tunnel ends need Internet-safe MTU'
+for name in ['clickhouse-backup.py', 'clickhouse-monitor.py']:
+    compile((root / name).read_text(), name, 'exec')
+CHECK
 dns="$base/clickhouse-dns/main.tf"
 grep -q 'proxied   = false' "$dns"
 grep -q 'metabase.fixture.example' "$dns"
@@ -67,4 +82,5 @@ if grep -rEq 'client-key-data|client-certificate-data|BEGIN (RSA |EC |OPENSSH |D
   echo 'credential-shaped value rendered' >&2; exit 1
 fi
 
+python3 "$root/test/backup_set_test.py"
 echo 'all ClickHouse goldens and safety assertions pass'

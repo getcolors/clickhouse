@@ -8,7 +8,9 @@ from blue.cli import par_name, read_pars
 from blue.lifecycle import preflight
 from blue.workflow import advice_add, workflow, failed
 
-from . import tools, validate
+from . import tools, validate, storage
+import os
+from colors_compute.managed_backend import finalize_backend
 
 DEFAULTS = {"compute-prevent-destroy": True, "provider-compute": "hcloud",
             "provider-dns": "cloudflare", "provider-backend": "r2",
@@ -36,6 +38,16 @@ def pass_step(opts: dict) -> dict:
     return {**opts, "blue/exit": 0}
 
 
+async def backend_finalize_step(opts):
+    try:
+        result = await finalize_backend(opts, {**os.environ, **storage.aws_env(opts)})
+        if result['status'] not in ('destroyed', 'absent', 'skipped'):
+            raise RuntimeError('finalization refused')
+        return {**opts, 'blue/exit': 0}
+    except Exception:
+        return {**opts, 'blue/exit': 1, 'blue/err': 'managed backend finalization refused; live or unowned state remains'}
+
+
 def wire_fn(step, run_opts):
     if run_opts.get('blue/event') == 'delete':
         return {
@@ -45,12 +57,15 @@ def wire_fn(step, run_opts):
             'clickhouse/acceptance': (tools.acceptance_step, 'clickhouse/ansible-cleanup'),
             'clickhouse/ansible-cleanup': (tools.ansible_cleanup_step, 'clickhouse/ansible-local'),
             'clickhouse/ansible-local': (tools.ansible_local_step, 'clickhouse/dns'),
-            'clickhouse/dns': (tools.dns_step, 'clickhouse/infrastructure'),
-            'clickhouse/infrastructure': (tools.infrastructure_step,),
+            'clickhouse/dns': (tools.dns_step, 'clickhouse/storage' if storage.managed(run_opts) else 'clickhouse/infrastructure'),
+            'clickhouse/storage': (storage.storage_step, 'clickhouse/infrastructure'),
+            'clickhouse/infrastructure': (tools.infrastructure_step, 'clickhouse/backend-finalize') if run_opts.get('s3-bucket-mode') == 'managed' else (tools.infrastructure_step,),
+            'clickhouse/backend-finalize': (backend_finalize_step,),
         }.get(step)
     return {
         'clickhouse/start': (start_step, 'clickhouse/infrastructure'),
-        'clickhouse/infrastructure': (tools.infrastructure_step, 'clickhouse/dns'),
+        'clickhouse/infrastructure': (tools.infrastructure_step, 'clickhouse/storage' if storage.managed(run_opts) else 'clickhouse/dns'),
+        'clickhouse/storage': (storage.storage_step, 'clickhouse/dns'),
         'clickhouse/dns': (tools.dns_step, 'clickhouse/ansible-local'),
         'clickhouse/ansible-local': (tools.ansible_local_step, 'clickhouse/ansible-render'),
         'clickhouse/ansible-render': (tools.ansible_render_step, 'clickhouse/wireguard'),
@@ -58,7 +73,8 @@ def wire_fn(step, run_opts):
         'clickhouse/clickhouse-config': (tools.clickhouse_config_step, 'clickhouse/dbt'),
         'clickhouse/metabase-config': (tools.metabase_config_step, 'clickhouse/dbt'),
         'clickhouse/dbt': (tools.dbt_step, 'clickhouse/acceptance'),
-        'clickhouse/acceptance': (tools.acceptance_step, 'clickhouse/drift'),
+        'clickhouse/acceptance': (tools.acceptance_step, 'clickhouse/rehearsal' if run_opts.get('clickhouse-backup-bucket') else 'clickhouse/drift'),
+        'clickhouse/rehearsal': (tools.rehearsal_step, 'clickhouse/drift'),
         'clickhouse/drift': (tools.drift_step,),
     }.get(step)
 
@@ -69,13 +85,13 @@ def backend_advice(tool: str):
         key=lambda o, tool=tool: f"{o.get('profile')}/{tool}.tfstate")
 
 
-side_effecting = ['clickhouse/ansible-local','clickhouse/infrastructure', 'clickhouse/load-infrastructure', 'clickhouse/dns',
+side_effecting = ['clickhouse/rehearsal', 'clickhouse/storage', 'clickhouse/backend-finalize', 'clickhouse/ansible-local','clickhouse/infrastructure', 'clickhouse/load-infrastructure', 'clickhouse/dns',
     'clickhouse/wireguard', 'clickhouse/clickhouse-config', 'clickhouse/metabase-config',
     'clickhouse/ansible-cleanup', 'clickhouse/dbt', 'clickhouse/acceptance', 'clickhouse/drift']
 
 
 def create_workflow():
-    wf = workflow(start="clickhouse/start", wire_fn=wire_fn, next_fn=lambda step, successors, opts: [] if opts.get("clickhouse/already-destroyed") or failed(opts) else [(successor, opts) for successor in successors or []])
+    wf = workflow(start="clickhouse/start", wire_fn=wire_fn, next_fn=lambda step, successors, opts: [] if opts.get("clickhouse/already-destroyed") or failed(opts) else ([("clickhouse/backend-finalize", {k:v for k,v in opts.items() if k != "clickhouse/finalize-only"})] if opts.get("clickhouse/finalize-only") else [(successor, opts) for successor in successors or []]))
     wf = progress.advise(wf)
     wf = dry_run.advise(wf, side_effecting)
     for tool in tools.tofu_tools:

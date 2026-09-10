@@ -5,7 +5,7 @@
     "": {
       "name": "package-clickhouse-red-dev",
       "dependencies": {
-        "colors-compute-red": "github:getcolors/colors-compute#6325b24d8a7477429164c5bb0b2a0a6454fd8c42",
+        "colors-compute-red": "github:getcolors/colors-compute#b98d88b0afe482b7033c5760db6d6ae4a43eec11",
         "package-once-red": "github:getcolors/once#98d3cfa2c743b89a72bac0252c258f9edeedcad7",
         "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e",
       },
@@ -62,7 +62,7 @@
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#6325b24", { "dependencies": { "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e" } }, "getcolors-colors-compute-6325b24", "sha512-uCue/kr1Ge8ci/8bMIyFyzWQ5nvvdl5ItS/8n1OQJiM0uE/UsHOWd8CZIErI+M32GxDk1gWoENaD2hwRs7qt9Q=="],
+    "colors-compute-red": ["colors-compute-red@github:getcolors/colors-compute#b98d88b", { "dependencies": { "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e" } }, "getcolors-colors-compute-b98d88b", "sha512-L3TepBXwcYYYNHHs9g8o8DWci3ScyXDuQFxvHL8/ghcmZMvHXZBrzYY7R+CpDRZm5DlcUOkibdX+wtYcVyYI2A=="],
 
     "package-once-red": ["package-once-red@github:getcolors/once#98d3cfa", { "peerDependencies": { "red": "*" }, "optionalPeers": ["red"] }, "getcolors-once-98d3cfa", "sha512-Z94fhzwmL/FOW3QTbJfGDOvBGF5tVRNgHK0rtOU4HK3Z7/cjPloY46FajHGJXnLYQCWoRYpgunjNSDI0q6oWyg=="],
 

@@ -31,3 +31,11 @@
           (is (= 4 (count (filter #(= "node.tf.json" (.getName %)) files))))
           (is (some #(= "acceptance.py" (.getName %)) files))))
       (finally (doseq [file (reverse (file-seq directory))] (io/delete-file file))))))
+
+(deftest managed-storage-order-and-retired-backend-retry
+  (let [opts (assoc base :green/event :delete :clickhouse-storage-managed true :s3-bucket-mode "managed")]
+    (is (= [:clickhouse/storage] (vec (rest (workflow/wire-fn :clickhouse/dns opts)))))
+    (is (= [:clickhouse/infrastructure] (vec (rest (workflow/wire-fn :clickhouse/storage opts)))))
+    (is (= [:clickhouse/backend-finalize] (vec (rest (workflow/wire-fn :clickhouse/infrastructure opts)))))
+    (with-redefs [inspection/read-deployment (fn [& _] {:status "destroyed"})]
+      (is (:clickhouse/finalize-only (tools/load-infrastructure-step opts))))))

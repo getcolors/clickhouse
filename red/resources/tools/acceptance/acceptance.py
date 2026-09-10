@@ -8,6 +8,8 @@ import sys
 import shutil
 import time
 import urllib.request
+import urllib.error
+import uuid
 
 import clickhouse_connect
 
@@ -75,9 +77,31 @@ def clickhouse_client():
 
 def check_clickhouse():
     client = clickhouse_client()
+    for ordinal in range(1, 4):
+        peer = clickhouse_connect.get_client(
+            host=f"node-{ordinal}.{CLICKHOUSE_HOST}",
+            port=<{ clickhouse-http-port }>, username="admin",
+            password=os.environ["COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD"],
+        )
+        try:
+            count = peer.query("SELECT count() FROM clusterAllReplicas('<{ clickhouse-cluster-name }>', system.one)").result_rows[0][0]
+            assert count == 3, f"node {ordinal} sees {count} replicas"
+            peer.command("SYSTEM FLUSH LOGS")
+            assert peer.query("SELECT count() FROM system.tables WHERE database = 'system' AND name = 'query_log'").result_rows == [(1,)]
+        finally:
+            peer.close()
+    request = urllib.request.Request(
+        f"http://{CLICKHOUSE_HOST}:<{ clickhouse-http-port }>/?query=SELECT%201",
+        headers={"X-ClickHouse-User": "admin", "X-ClickHouse-Key": "wrong-" + uuid.uuid4().hex},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raise AssertionError(f"Wrong ClickHouse password accepted: {response.status}")
+    except urllib.error.HTTPError as error:
+        assert error.code in (401, 403), f"Unexpected authentication refusal: {error.code}"
     replicas = client.query(
         "SELECT count(), sum(queue_size), min(active_replicas) "
-        "FROM clusterAllReplicas('<{ clickhouse-cluster-name }>', system.replicas)"
+        "FROM clusterAllReplicas('<{ clickhouse-cluster-name }>', system.replicas) WHERE database = 'analytics'"
     ).result_rows[0]
     assert tuple(map(int, replicas)) == (6, 0, 3), f"unhealthy replicas: {replicas}"
     keepers = client.query(

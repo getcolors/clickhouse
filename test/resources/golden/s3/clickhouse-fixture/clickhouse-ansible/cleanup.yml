@@ -1,4 +1,5 @@
 ---
+
 - name: Disconnect local WireGuard before destroying servers
   hosts: local
   become: true

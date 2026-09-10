@@ -1,4 +1,25 @@
 ---
+<% if clickhouse-backup-bucket %>
+- name: Stop native backups before retiring storage
+  hosts: clickhouse[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Inspect installed backup units
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ item }}"
+      loop:
+        - clickhouse-backup.timer
+        - clickhouse-backup.service
+      register: backup_units
+    - name: Stop the backup timer and any running backup
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ backup_units.results }}"
+      when: item.stat.exists
+<% endif %>
 - name: Disconnect local WireGuard before destroying servers
   hosts: local
   become: true

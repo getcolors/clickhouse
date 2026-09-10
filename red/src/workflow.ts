@@ -1,3 +1,5 @@
+import * as storage from './storage.ts';
+import {finalize_backend} from 'colors-compute-red';
 // Lifecycle graph and backend advice, the port of
 // io.github.getcolors.clickhouse.workflow.
 
@@ -44,6 +46,14 @@ export function passStep(opts: Opts): Opts {
   return { ...opts, "red/exit": 0 };
 }
 
+export async function backendFinalizeStep(opts: Opts): Promise<Opts> {
+  try {
+    const result = await finalize_backend(opts,{...process.env,...storage.awsEnv(opts)});
+    if (!['destroyed','absent','skipped'].includes(result.status)) throw Error('finalization refused');
+    return {...opts,'red/exit':0};
+  } catch { return {...opts,'red/exit':1,'red/err':'managed backend finalization refused; live or unowned state remains'}; }
+}
+
 export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
   if (runOpts["red/event"] === "delete") {
     const graph: Record<string, WireDecl> = {
@@ -53,14 +63,17 @@ export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
       "clickhouse/acceptance": [tools.acceptanceStep, "clickhouse/ansible-cleanup"],
       "clickhouse/ansible-cleanup": [tools.ansibleCleanupStep, "clickhouse/ansible-local"],
       "clickhouse/ansible-local": [tools.ansibleLocalStep, "clickhouse/dns"],
-      "clickhouse/dns": [tools.dnsStep, "clickhouse/infrastructure"],
-      "clickhouse/infrastructure": [tools.infrastructureStep],
+      "clickhouse/dns": [tools.dnsStep, storage.managed(runOpts)?"clickhouse/storage":"clickhouse/infrastructure"],
+      "clickhouse/storage": [storage.storageStep, "clickhouse/infrastructure"],
+      "clickhouse/infrastructure": runOpts["s3-bucket-mode"]==="managed"?[tools.infrastructureStep,"clickhouse/backend-finalize"]:[tools.infrastructureStep],
+      "clickhouse/backend-finalize": [backendFinalizeStep],
     };
     return graph[step];
   }
   const graph: Record<string, WireDecl> = {
     "clickhouse/start": [startStep, "clickhouse/infrastructure"],
-    "clickhouse/infrastructure": [tools.infrastructureStep, "clickhouse/dns"],
+    "clickhouse/infrastructure": [tools.infrastructureStep, storage.managed(runOpts)?"clickhouse/storage":"clickhouse/dns"],
+    "clickhouse/storage": [storage.storageStep,"clickhouse/dns"],
     "clickhouse/dns": [tools.dnsStep, "clickhouse/ansible-local"],
     "clickhouse/ansible-local": [tools.ansibleLocalStep, "clickhouse/ansible-render"],
     "clickhouse/ansible-render": [tools.ansibleRenderStep, "clickhouse/wireguard"],
@@ -69,7 +82,8 @@ export function wireFn(step: string, runOpts: Opts): WireDecl | undefined {
     "clickhouse/clickhouse-config": [tools.clickhouseConfigStep, "clickhouse/dbt"],
     "clickhouse/metabase-config": [tools.metabaseConfigStep, "clickhouse/dbt"],
     "clickhouse/dbt": [tools.dbtStep, "clickhouse/acceptance"],
-    "clickhouse/acceptance": [tools.acceptanceStep, "clickhouse/drift"],
+    "clickhouse/acceptance": [tools.acceptanceStep, runOpts["clickhouse-backup-bucket"]?"clickhouse/rehearsal":"clickhouse/drift"],
+    "clickhouse/rehearsal": [tools.rehearsalStep, "clickhouse/drift"],
     "clickhouse/drift": [tools.driftStep],
   };
   return graph[step];
@@ -82,7 +96,7 @@ export function backendAdvice(tool: string) {
   });
 }
 
-export const sideEffecting = ['clickhouse/ansible-local',
+export const sideEffecting = ['clickhouse/rehearsal','clickhouse/storage','clickhouse/backend-finalize','clickhouse/ansible-local',
   "clickhouse/infrastructure", "clickhouse/load-infrastructure",
   "clickhouse/dns", "clickhouse/wireguard", "clickhouse/clickhouse-config",
   "clickhouse/metabase-config", "clickhouse/ansible-cleanup", "clickhouse/dbt",
@@ -90,7 +104,7 @@ export const sideEffecting = ['clickhouse/ansible-local',
 ];
 
 function create() {
-  let wf = workflow({ start: "clickhouse/start", wireFn, nextFn: (_step, declared, opts) => failed(opts)||opts["clickhouse/already-destroyed"]?[]:(declared??[]).map(step=>[step,opts] as [string,Opts]) });
+  let wf = workflow({ start: "clickhouse/start", wireFn, nextFn: (_step, declared, opts) => failed(opts)||opts["clickhouse/already-destroyed"]?[]:opts["clickhouse/finalize-only"]?[["clickhouse/backend-finalize",{...opts,"clickhouse/finalize-only":false}]]:(declared??[]).map(step=>[step,opts] as [string,Opts]) });
   wf = progress.advise(wf);
   wf = dryRun.advise(wf, sideEffecting);
   for (const tool of tools.tofuTools) {

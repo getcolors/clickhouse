@@ -1,3 +1,9 @@
+import monitorAsset from "../resources/tools/ansible/clickhouse-monitor.py" with {type:"text"};
+import backupAsset0 from "../resources/tools/ansible/clickhouse-backup.xml" with {type:"text"};
+import backupAsset1 from "../resources/tools/ansible/clickhouse-backup.py" with {type:"text"};
+import backupAsset2 from "../resources/tools/ansible/clickhouse-backup.yml" with {type:"text"};
+import backupAsset3 from "../resources/tools/ansible/clickhouse-rehearsal.yml" with {type:"text"};
+import * as storage from './storage.ts';
 import localMain from "../resources/tools/ansible-local/main.yml" with { type: "text" };
 import localInventory from "../resources/tools/ansible-local/inventory.ini" with { type: "text" };
 import localCfg from "../resources/tools/ansible-local/ansible.cfg" with { type: "text" };
@@ -44,7 +50,7 @@ export const dnsTool = "clickhouse-dns";
 export const ansibleTool = "clickhouse-ansible";
 export const dbtTool = "clickhouse-dbt";
 export const acceptanceTool = "clickhouse-acceptance";
-export const tofuTools = [dnsTool];
+export const tofuTools = [dnsTool, storage.tool];
 
 export const templateOpts = PRESERVE_JINJA_DELIMITERS;
 
@@ -64,6 +70,11 @@ const templates: Record<string, string> = {
   "ansible/clickhouse-config.xml": ansibleClickhouseConfig as unknown as string,
   "ansible/clickhouse-users.xml": ansibleClickhouseUsers as unknown as string,
   "ansible/clickhouse.yml": ansibleClickhouse,
+  "ansible/clickhouse-backup.xml": backupAsset0 as unknown as string,
+  "ansible/clickhouse-monitor.py": monitorAsset,
+  "ansible/clickhouse-backup.py": backupAsset1 as unknown as string,
+  "ansible/clickhouse-backup.yml": backupAsset2 as unknown as string,
+  "ansible/clickhouse-rehearsal.yml": backupAsset3 as unknown as string,
   "ansible/docker-compose.yml": ansibleCompose,
   "ansible/main.yml": ansibleMain,
   "ansible/metabase.yml": ansibleMetabase,
@@ -110,7 +121,7 @@ function sorted(value: any): any {
 export async function infrastructureStep(opts: Opts): Promise<Opts> {
   try {
     const planning=opts['red/event']==='build'||opts['red/dry-run'];
-    const result:any=planning?plan_deployment(opts,compute.TOPOLOGY,compute.requirements(opts)):await orchestrate(opts,compute.TOPOLOGY,compute.requirements(opts));
+    const result:any=planning?plan_deployment(opts,compute.TOPOLOGY,compute.requirements(opts)):await orchestrate(opts,compute.TOPOLOGY,compute.requirements(opts),{...process.env,...storage.awsEnv(opts)});
     if(planning) {
       const stages:any[]=[['shared',result.documents.shared],...Object.entries(result.documents.nodes).map(([node,docs])=>['nodes/'+node,docs])];
       for(const [stage,documents] of stages) for(const [name,document] of Object.entries(documents)) {
@@ -128,8 +139,8 @@ export async function infrastructureStep(opts: Opts): Promise<Opts> {
 }
 export async function loadInfrastructureStep(opts: Opts): Promise<Opts> {
   if(opts['red/event']==='build'||opts['red/dry-run']) return infrastructureStep(opts);
-  const result:any=await read_deployment(opts,undefined,undefined,compute.requirements(opts));
-  if(result.status==='destroyed'&&opts['red/event']==='delete') return {...opts,'clickhouse/already-destroyed':true,'red/exit':0};
+  const result:any=await read_deployment(opts,{...process.env,...storage.awsEnv(opts)},undefined,compute.requirements(opts));
+  if(result.status==='destroyed'&&opts['red/event']==='delete') return {...opts,[opts['s3-bucket-mode']==='managed'?'clickhouse/finalize-only':'clickhouse/already-destroyed']:true,'red/exit':0};
   if(result.status!=='present') return {...opts,'red/exit':1,'red/err':'compute state unavailable; legacy monolithic state requires explicit migration'};
   const output:Opts={...opts,'red/exit':0,'colors-compute/cluster':result.cluster,'colors-compute/shared':result.shared,'clickhouse/infrastructure-present?':true};
   if(result.key?.private_key_path) output['ssh-private-key-path']=result.key.private_key_path;
@@ -138,7 +149,9 @@ export async function loadInfrastructureStep(opts: Opts): Promise<Opts> {
 
 export function dnsData(opts: Opts): Opts {
   return {
-    ...opts,
+    ...opts, "cloudflare-zone": opts["cloudflare-zone"]??opts.domain,
+    "clickhouse-backup-region":opts["clickhouse-backup-region"]??"us-east-1",
+    "clickhouse-backup-prefix":opts["clickhouse-backup-prefix"]??`${opts.profile}/clickhouse`,
     "metabase-host": utils.fqdn(opts, "metabase"),
     "clickhouse-host": utils.fqdn(opts, "clickhouse"),
   };
@@ -232,6 +245,8 @@ export function inventory(opts: Opts): string {
 export function ansibleData(opts: Opts): Opts {
   return {
     ...opts,
+    "clickhouse-backup-region":opts["clickhouse-backup-region"]??"us-east-1",
+    "clickhouse-backup-prefix":opts["clickhouse-backup-prefix"]??`${opts.profile}/clickhouse`,
     "metabase-host": utils.fqdn(opts, "metabase"),
     "clickhouse-host": utils.fqdn(opts, "clickhouse"),
     "local-wg-address": String(opts["wireguard-client-address"] ?? "").split("/")[0],
@@ -250,6 +265,11 @@ export function ansibleSpecs(opts: Opts): Spec[] {
     spec(template("ansible", "cleanup.yml"), `${dir}/cleanup.yml`, data),
     spec(template("ansible", "clickhouse-config.xml"), `${dir}/clickhouse-config.xml`, data),
     spec(template("ansible", "clickhouse-users.xml"), `${dir}/clickhouse-users.xml`, data),
+    spec(template("ansible", "clickhouse-backup.xml"), `${dir}/clickhouse-backup.xml`, data),
+    spec(template("ansible", "clickhouse-monitor.py"), `${dir}/clickhouse-monitor.py`, data),
+    spec(template("ansible", "clickhouse-backup.py"), `${dir}/clickhouse-backup.py`, data),
+    spec(template("ansible", "clickhouse-backup.yml"), `${dir}/clickhouse-backup.yml`, data),
+    spec(template("ansible", "clickhouse-rehearsal.yml"), `${dir}/clickhouse-rehearsal.yml`, data),
     spec(template("ansible", "docker-compose.yml"), `${dir}/docker-compose.yml`, data),
     rawSpec(`${dir}/inventory.json`, inventory(opts)),
   ];
@@ -261,6 +281,10 @@ export function ansibleRenderStep(opts: Opts): Opts {
 
 export async function ansiblePlaybookStep(opts: Opts, playbook: string, recapKey: string): Promise<Opts> {
   if (opts["red/event"] === "build") return { ...opts, "red/exit": 0 };
+  if(storage.managed(opts)) {
+    const result=await runtime.exec(['ansible-playbook','-i','inventory.json',playbook],{cwd:toolDir(opts,ansibleTool),env:storage.credentialEnv(opts),timeoutMs:7200000});
+    return {...opts,'red/exit':result.exit,[recapKey]:ansible.parseRecap(result.out),...(result.exit?{'red/err':'Ansible convergence failed: '+result.out+result.err}:{})};
+  }
   return ansible.ansibleStep(opts, {
     dir: toolDir(opts, ansibleTool),
     inventory: "inventory.json",
@@ -338,7 +362,7 @@ export async function driftStep(opts: Opts): Promise<Opts> {
   const computeResult = await check_deployment_drift(opts, compute.TOPOLOGY, compute.requirements(opts));
   if(computeResult.status!=='clean') return {...opts,'red/exit':1,'red/err':computeResult.errors?.join('\n')||'compute drift check failed'};
   const env = credentialEnv(opts, "provider-dns");
-  const results = await Promise.all(tofuTools.map(async (tool) =>
+  const results = await Promise.all(tofuTools.filter(tool=>tool!==storage.tool||storage.managed(opts)).map(async (tool) =>
     [tool, await runtime.exec(
       ["tofu", `-chdir=${toolDir(opts, tool)}`, "plan", "-detailed-exitcode", "-input=false", "-no-color"],
       { env })] as const));
@@ -359,4 +383,9 @@ export function ansibleLocalSpecs(opts:Opts):Spec[]{const data={...opts,'ssh-key
 export async function ansibleLocalStep(opts:Opts):Promise<Opts>{
  if(opts['red/event']==='create'&&!opts['red/dry-run']){opts=sshConfig.preflight(opts);if(failed(opts))return opts;}
  return ansible.ansibleWithSpec(opts,{dir:toolDir(opts,ansibleLocalTool),inventory:'inventory.ini',playbooks:{create:'main.yml',delete:'main.yml'},extraVars:{host_alias:opts.profile,ssh_hosts:sshConfigHosts(opts),block_state:opts['red/event']==='delete'?'absent':'present'}},ansibleLocalSpecs(opts));
+}
+
+export async function rehearsalStep(opts: Opts): Promise<Opts> {
+  if(!opts['clickhouse-backup-bucket']) return {...opts,'red/exit':0};
+  return ansiblePlaybookStep(opts,'clickhouse-rehearsal.yml','clickhouse/rehearsal-recap');
 }

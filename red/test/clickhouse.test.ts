@@ -137,3 +137,17 @@ describe("workflow", () => {
   expect(host.ansible_user).toBe('ubuntu');expect(host.private_ip).toBe('10.20.1.99');
   expect(()=>tools.allServers({...opts,'colors-compute/cluster':{nodes:planned.cluster.nodes.slice(0,3)}})).toThrow();
  });
+
+test('backup never shares remote state or unsafe prefix',()=>{
+  const opts={...base,'clickhouse-storage-managed':true,'clickhouse-backup-region':'us-east-1','clickhouse-backup-bucket':'test-state','s3-bucket':'test-state'};
+  expect(validate.stateErrors(opts)).toContain(':clickhouse-backup-bucket must not be the OpenTofu state bucket');
+  expect(validate.stateErrors({...opts,'clickhouse-backup-bucket':'separate-backup','clickhouse-backup-prefix':'../bad'})).toContain(':clickhouse-backup-prefix must contain safe nonempty path segments');
+  expect(validate.stateErrors({...opts,'clickhouse-backup-bucket':'separate-backup'})).toEqual([]);
+});
+
+test('managed storage deletion precedes compute and backend finalization',()=>{
+  const opts={'red/event':'delete','clickhouse-storage-managed':true,'s3-bucket-mode':'managed'};
+  expect(workflow.wireFn('clickhouse/dns',opts)?.slice(1)).toEqual(['clickhouse/storage']);
+  expect(workflow.wireFn('clickhouse/storage',opts)?.slice(1)).toEqual(['clickhouse/infrastructure']);
+  expect(workflow.wireFn('clickhouse/infrastructure',opts)?.slice(1)).toEqual(['clickhouse/backend-finalize']);
+});

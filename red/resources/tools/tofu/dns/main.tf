@@ -4,7 +4,7 @@ terraform {
   }
 }
 provider "cloudflare" {}
-data "cloudflare_zone" "domain" { filter = { name = "<{ domain }>" } }
+data "cloudflare_zone" "domain" { filter = { name = "<{ cloudflare-zone }>" } }
 
 locals {
   records = {

@@ -1,0 +1,10 @@
+<clickhouse>
+  <storage_configuration><disks><backups>
+    <type>s3_plain</type>
+    <endpoint>https://s3.<{ clickhouse-backup-region }>.amazonaws.com/<{ clickhouse-backup-bucket }>/<{ clickhouse-backup-prefix }>/</endpoint>
+    <access_key_id>{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_ACCESS_KEY_ID') | e }}</access_key_id>
+    <secret_access_key>{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_SECRET_ACCESS_KEY') | e }}</secret_access_key>
+    <use_environment_credentials>false</use_environment_credentials>
+  </backups></disks></storage_configuration>
+  <backups><allowed_disk>backups</allowed_disk></backups>
+</clickhouse>

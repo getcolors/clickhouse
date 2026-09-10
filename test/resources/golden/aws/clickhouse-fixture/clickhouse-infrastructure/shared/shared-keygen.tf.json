@@ -1,0 +1,25 @@
+{
+  "output": {
+    "key_name": {
+      "value": "${aws_key_pair.machine.key_name}"
+    },
+    "registration": {
+      "value": {
+        "id": "${aws_key_pair.machine.id}",
+        "provider": "aws",
+        "scope": "region"
+      }
+    },
+    "ssh_key_id": {
+      "value": "${aws_key_pair.machine.id}"
+    }
+  },
+  "resource": {
+    "aws_key_pair": {
+      "machine": {
+        "key_name": "clickhouse-fixture",
+        "public_key": "ssh-ed25519 PLACEHOLDER managed-by-colors"
+      }
+    }
+  }
+}

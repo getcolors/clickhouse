@@ -41,6 +41,9 @@ for fixture in colors optout; do
   build_variant "r2-$fixture" COLORS_PAR_PROVIDER_BACKEND=r2
 done
 
+state="$root/test/fixtures/aws.yml"
+build_variant aws COLORS_PAR_PROVIDER_BACKEND=s3
+
 diff -r "$root/green/src/resources/io/github/getcolors/clickhouse" "$root/red/resources"
 diff -r "$root/green/src/resources/io/github/getcolors/clickhouse" "$root/blue/src/package_clickhouse_blue/resources"
 

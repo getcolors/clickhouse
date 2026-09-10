@@ -84,8 +84,22 @@ function prStr(value: unknown): string {
   return String(value);
 }
 
+export function storageErrors(opts: Opts): string[] {
+  const errors:string[]=[];
+  if(opts['clickhouse-storage-managed']!==undefined && typeof opts['clickhouse-storage-managed']!=='boolean') errors.push(':clickhouse-storage-managed must be true or false');
+  if(opts['clickhouse-storage-managed']===true||opts['clickhouse-backup-bucket']) {
+    const bucket=opts['clickhouse-backup-bucket'];
+    if(typeof bucket!=='string'||!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) errors.push(':clickhouse-backup-bucket must be a valid S3 bucket name');
+    if(typeof opts['clickhouse-backup-region']!=='string'||!/^[a-z]{2}(?:-[a-z]+)+-[0-9]$/.test(opts['clickhouse-backup-region'])) errors.push(':clickhouse-backup-region must be an AWS region');
+    if(bucket===opts['s3-bucket']||bucket===opts['r2-bucket']) errors.push(':clickhouse-backup-bucket must not be the OpenTofu state bucket');
+    const prefix=opts['clickhouse-backup-prefix']??`${opts.profile??''}/clickhouse`;
+    if(typeof prefix!=='string'||!/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(prefix)) errors.push(':clickhouse-backup-prefix must contain safe nonempty path segments');
+  }
+  return errors;
+}
+
 export function stateErrors(opts: Opts): string[] {
-  const errors: string[] = [];
+  const errors: string[] = storageErrors(opts);
   for (const key of missing(opts, [...ownRequired, ...slotKeys(opts, "required")])) {
     errors.push(`:${key} is required`);
   }

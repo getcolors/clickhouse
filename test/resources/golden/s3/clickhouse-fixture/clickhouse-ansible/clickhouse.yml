@@ -2,6 +2,14 @@
   hosts: clickhouse
   become: true
   tasks:
+    - name: Refuse empty ClickHouse secrets
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') | length > 0
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET') | length > 0
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_METABASE_PASSWORD') | length > 0
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_DBT_PASSWORD') | length > 0
+      no_log: true
     - name: Install repository prerequisites
       ansible.builtin.apt:
         name: [ca-certificates, curl, gnupg]
@@ -50,6 +58,47 @@
         mode: "0600"
       no_log: true
       notify: Restart ClickHouse
+    - name: Install authenticated local operator client
+      ansible.builtin.copy:
+        content: "<config><user>admin</user><password>{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') | e }}</password></config>"
+        dest: /etc/clickhouse-server/backup-client.xml
+        mode: '0600'
+      no_log: true
+    - name: Install ClickHouse health monitor
+      ansible.builtin.copy:
+        src: clickhouse-monitor.py
+        dest: /usr/local/sbin/clickhouse-monitor
+        mode: '0700'
+    - name: Install monitor service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/clickhouse-monitor.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=ClickHouse measurable cluster health
+          After=clickhouse-server.service
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/clickhouse-monitor
+          TimeoutStartSec=5min
+    - name: Install monitor timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/clickhouse-monitor.timer
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Check ClickHouse health every fifteen minutes
+          [Timer]
+          OnBootSec=15min
+          OnUnitActiveSec=15min
+          [Install]
+          WantedBy=timers.target
+    - name: Enable monitor timer
+      ansible.builtin.systemd_service:
+        name: clickhouse-monitor.timer
+        daemon_reload: true
+        enabled: true
+        state: started
     - name: Apply ClickHouse changes now
       ansible.builtin.meta: flush_handlers
     - name: Ensure ClickHouse is enabled and running
@@ -72,7 +121,7 @@
         state: restarted
 
 - name: Verify ClickHouse and Keeper quorum
-  hosts: "{{ groups['clickhouse'][0] }}"
+  hosts: clickhouse
   become: true
   tasks:
     - name: Wait for all replicas through the cluster table
@@ -91,3 +140,17 @@
       retries: 30
       delay: 3
       until: replica_count.stdout | trim == '3'
+    - name: Verify Keeper quorum and UTC
+      ansible.builtin.command:
+        argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "SELECT (SELECT count() FROM system.zookeeper WHERE path = '/') > 0 AND timezone() = 'UTC'"]
+      register: keeper_health
+      retries: 10
+      delay: 3
+      until: keeper_health.stdout | trim == '1'
+      changed_when: false
+      no_log: true
+    - name: Flush lazily created system logs
+      ansible.builtin.command:
+        argv: [clickhouse-client, --user, admin, --password, "{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}", --query, "SYSTEM FLUSH LOGS"]
+      changed_when: false
+      no_log: true

@@ -1,0 +1,83 @@
+- name: Install and verify native S3 backups
+  hosts: "{{ groups['clickhouse'][0] }}"
+  become: true
+  tasks:
+    - name: Require backup credentials
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_ACCESS_KEY_ID') | length > 0
+          - lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_SECRET_ACCESS_KEY') | length > 0
+      no_log: true
+    - name: Install S3 client library
+      ansible.builtin.apt:
+        name: python3-boto3
+        state: present
+    - name: Install backup disk
+      ansible.builtin.template:
+        src: clickhouse-backup.xml
+        dest: /etc/clickhouse-server/config.d/colors-backup.xml
+        owner: clickhouse
+        group: clickhouse
+        mode: '0600'
+      no_log: true
+      notify: Restart backup node
+    - name: Install operator credentials
+      ansible.builtin.copy:
+        content: "{{ {'bucket': 'clickhouse-aws-backup-000000000000-us-east-1', 'prefix': 'clickhouse-aws/clickhouse', 'region': 'us-east-1', 'access_key_id': lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_ACCESS_KEY_ID'), 'secret_access_key': lookup('env', 'COLORS_PAR_CLICKHOUSE_BACKUP_SECRET_ACCESS_KEY')} | to_json }}"
+        dest: /etc/clickhouse-server/backup-credentials.json
+        mode: '0600'
+      no_log: true
+    - name: Install local authenticated client configuration
+      ansible.builtin.copy:
+        content: "<config><user>admin</user><password>{{ lookup('env', 'COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') | e }}</password></config>"
+        dest: /etc/clickhouse-server/backup-client.xml
+        mode: '0600'
+      no_log: true
+    - name: Install backup and restore command
+      ansible.builtin.copy:
+        src: clickhouse-backup.py
+        dest: /usr/local/sbin/clickhouse-backup
+        mode: '0700'
+    - ansible.builtin.meta: flush_handlers
+    - name: Wait for backup disk registration
+      ansible.builtin.command:
+        argv: [clickhouse-client, --config-file, /etc/clickhouse-server/backup-client.xml, --query, "SELECT count() FROM system.disks WHERE name = 'backups'"]
+      register: backup_disk
+      retries: 30
+      delay: 2
+      until: backup_disk.stdout | trim == '1'
+      changed_when: false
+    - name: Install nightly backup service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/clickhouse-backup.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Verified native ClickHouse S3 backup
+          After=clickhouse-server.service
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/clickhouse-backup backup
+    - name: Install nightly backup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/clickhouse-backup.timer
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Nightly ClickHouse backup
+          [Timer]
+          OnCalendar=*-*-* 03:00:00 UTC
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+    - name: Enable nightly backup timer
+      ansible.builtin.systemd_service:
+        name: clickhouse-backup.timer
+        daemon_reload: true
+        enabled: true
+        state: started
+  handlers:
+    - name: Restart backup node
+      ansible.builtin.systemd_service:
+        name: clickhouse-server
+        state: restarted

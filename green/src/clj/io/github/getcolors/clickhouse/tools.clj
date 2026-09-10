@@ -1,6 +1,7 @@
 (ns io.github.getcolors.clickhouse.tools
   "OpenTofu and Ansible stages for the fixed v1 topology."
-  (:require [io.github.getcolors.clickhouse.ssh-config :as ssh-config]
+  (:require [io.github.getcolors.clickhouse.storage :as storage]
+            [io.github.getcolors.clickhouse.ssh-config :as ssh-config]
             [io.github.getcolors.compute-ssh :as compute-ssh]
             [io.github.getcolors.compute-drift :as compute-drift]
             [babashka.process :as process]
@@ -9,6 +10,7 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [green.ansible :as ansible]
+            [green.process :as green-process]
             [green.cli :as green-cli]
             [green.providers :as provider-ops]
             [green.scaffold :as sc]
@@ -26,7 +28,7 @@
 (def ansible-tool "clickhouse-ansible")
 (def dbt-tool "clickhouse-dbt")
 (def acceptance-tool "clickhouse-acceptance")
-(def tofu-tools [dns-tool])
+(def tofu-tools [dns-tool storage/tool])
 
 (def root "io.github.getcolors.clickhouse.tools")
 (def template-opts sc/preserve-jinja-delimiters)
@@ -62,7 +64,7 @@
     (let [planning? (or (= :build (:green/event opts)) (:green/dry-run opts))
           result (if planning?
                    (planning/plan-deployment opts compute/topology (compute/requirements opts))
-                   (orchestration/orchestrate opts compute/topology (compute/requirements opts)))]
+                   (orchestration/orchestrate opts compute/topology (compute/requirements opts) (merge (into {} (System/getenv)) (storage/aws-env opts))))]
       (when planning?
         (doseq [[stage documents] (cons ["shared" (get-in result [:documents :shared])]
                                       (map (fn [[id documents]] [(str "nodes/" id) documents]) (get-in result [:documents :nodes])))
@@ -80,15 +82,17 @@
 
 (defn load-infrastructure-step [opts]
   (if (or (= :build (:green/event opts)) (:green/dry-run opts)) (infrastructure-step opts)
-      (let [result (inspection/read-deployment opts)]
+      (let [result (inspection/read-deployment opts (merge (into {} (System/getenv)) (storage/aws-env opts)) {} (compute/requirements opts))]
         (case (:status result)
-          "destroyed" (if (= :delete (:green/event opts)) (assoc opts :clickhouse/already-destroyed true :green/exit 0) (refuse opts ["compute inventory unavailable"]))
+          "destroyed" (if (= :delete (:green/event opts)) (assoc opts (if (= "managed" (:s3-bucket-mode opts)) :clickhouse/finalize-only :clickhouse/already-destroyed) true :green/exit 0) (refuse opts ["compute inventory unavailable"]))
           "present" (cond-> (assoc opts :colors-compute/cluster (:cluster result) :colors-compute/shared (:shared result) :clickhouse/infrastructure-present? true :green/exit 0)
                       (get-in result [:key :private_key_path]) (assoc :ssh-private-key-path (get-in result [:key :private_key_path])))
           (refuse opts ["compute state unavailable; legacy monolithic state requires explicit migration"])))))
 
 (defn dns-data [opts]
-  (assoc opts
+  (assoc opts :cloudflare-zone (or (:cloudflare-zone opts) (:domain opts))
+         :clickhouse-backup-region (or (:clickhouse-backup-region opts) "us-east-1")
+         :clickhouse-backup-prefix (or (:clickhouse-backup-prefix opts) (str (:profile opts) "/clickhouse"))
          :metabase-host (utils/fqdn opts "metabase")
          :clickhouse-host (utils/fqdn opts "clickhouse")))
 (defn dns-step [opts]
@@ -127,6 +131,8 @@
 
 (defn ansible-data [opts]
   (assoc opts
+         :clickhouse-backup-region (or (:clickhouse-backup-region opts) "us-east-1")
+         :clickhouse-backup-prefix (or (:clickhouse-backup-prefix opts) (str (:profile opts) "/clickhouse"))
          :metabase-host (utils/fqdn opts "metabase")
          :clickhouse-host (utils/fqdn opts "clickhouse")
          :local-wg-address (first (str/split (str (:wireguard-client-address opts)) #"/"))))
@@ -141,6 +147,11 @@
      (spec (template "ansible" "cleanup.yml") (str dir "/cleanup.yml") data)
      (spec (template "ansible" "clickhouse-config.xml") (str dir "/clickhouse-config.xml") data)
      (spec (template "ansible" "clickhouse-users.xml") (str dir "/clickhouse-users.xml") data)
+     (spec (template "ansible" "clickhouse-backup.xml") (str dir "/clickhouse-backup.xml") data)
+     (spec (template "ansible" "clickhouse-monitor.py") (str dir "/clickhouse-monitor.py") data)
+     (spec (template "ansible" "clickhouse-backup.py") (str dir "/clickhouse-backup.py") data)
+     (spec (template "ansible" "clickhouse-backup.yml") (str dir "/clickhouse-backup.yml") data)
+     (spec (template "ansible" "clickhouse-rehearsal.yml") (str dir "/clickhouse-rehearsal.yml") data)
      (spec (template "ansible" "docker-compose.yml") (str dir "/docker-compose.yml") data)
      (raw-spec (str dir "/inventory.json") (inventory opts))]))
 
@@ -148,13 +159,16 @@
   (sc/scaffold opts (ansible-specs opts)))
 
 (defn ansible-playbook-step [opts playbook recap-key]
-  (if (= :build (:green/event opts))
-    (assoc opts :green/exit 0)
-    (ansible/ansible-step opts {:dir (tool-dir opts ansible-tool)
-                                :inventory "inventory.json"
-                                :playbooks {:create playbook}
-                                :host-key-checking false
-                                :recap-key recap-key})))
+  (cond
+    (= :build (:green/event opts)) (assoc opts :green/exit 0)
+    (storage/managed? opts)
+    (let [result (green-process/run-with-timeout ["ansible-playbook" "-i" "inventory.json" playbook]
+                   {:dir (tool-dir opts ansible-tool) :extra-env (storage/credential-env opts)} 7200000)]
+      (if (zero? (:exit result))
+        (assoc opts :green/exit 0 recap-key (ansible/parse-recap (:out result)))
+        (assoc opts :green/exit 1 :green/err (str "Ansible convergence failed: " (:out result) (:err result)))))
+    :else (ansible/ansible-step opts {:dir (tool-dir opts ansible-tool) :inventory "inventory.json"
+                                     :playbooks {:create playbook} :host-key-checking false :recap-key recap-key})))
 
 (defn wireguard-step [opts]
   (ansible-playbook-step opts "wireguard.yml" :clickhouse/wireguard-recap))
@@ -228,7 +242,7 @@
                            [tool (process/shell {:env env :continue true}
                                                 "tofu" (str "-chdir=" (tool-dir opts tool))
                                                 "plan" "-detailed-exitcode" "-input=false" "-no-color")])
-                         tofu-tools))
+                         (filter #(or (not= % storage/tool) (storage/managed? opts)) tofu-tools)))
           failed (first (filter (fn [[_ result]] (not (zero? (:exit result)))) results))]
       (if failed
         (let [[tool result] failed]
@@ -257,3 +271,8 @@
       (ansible/ansible-with-spec opts
         {:dir (tool-dir opts ansible-local-tool) :inventory "inventory.ini" :playbooks {:create "main.yml" :delete "main.yml"}
          :extra-vars {:host_alias (:profile opts) :ssh_hosts (ssh-config-hosts opts) :block_state (if (= :delete (:green/event opts)) "absent" "present")}} (ansible-local-specs opts)))))
+
+(defn rehearsal-step [opts]
+  (if (:clickhouse-backup-bucket opts)
+    (ansible-playbook-step opts "clickhouse-rehearsal.yml" :clickhouse/rehearsal-recap)
+    (assoc opts :green/exit 0)))

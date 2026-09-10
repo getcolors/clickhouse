@@ -7,22 +7,23 @@
   <interserver_http_host>{{ private_ip }}</interserver_http_host>
   <interserver_http_credentials>
     <user>interserver</user>
-    <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET') }}</password>
+    <password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET') | e }}</password>
   </interserver_http_credentials>
   <remote_servers>
     <fixture>
+      <secret>{{ lookup('env','COLORS_PAR_CLICKHOUSE_INTERSERVER_SECRET') | e }}</secret>
       <shard>
         <internal_replication>true</internal_replication>
-        <replica><host>10.20.1.11</host><port>9000</port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
-        <replica><host>10.20.1.12</host><port>9000</port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
-        <replica><host>10.20.1.13</host><port>9000</port><user>admin</user><password>{{ lookup('env','COLORS_PAR_CLICKHOUSE_ADMIN_PASSWORD') }}</password></replica>
+{% for host in groups['clickhouse'] %}
+        <replica><host>{{ hostvars[host].private_ip }}</host><port>9000</port></replica>
+{% endfor %}
       </shard>
     </fixture>
   </remote_servers>
   <zookeeper>
-    <node><host>10.20.1.11</host><port>9181</port></node>
-    <node><host>10.20.1.12</host><port>9181</port></node>
-    <node><host>10.20.1.13</host><port>9181</port></node>
+{% for host in groups['clickhouse'] %}
+    <node><host>{{ hostvars[host].private_ip }}</host><port>9181</port></node>
+{% endfor %}
   </zookeeper>
   <keeper_server>
     <tcp_port>9181</tcp_port>
@@ -31,12 +32,22 @@
     <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
     <coordination_settings><operation_timeout_ms>10000</operation_timeout_ms><session_timeout_ms>30000</session_timeout_ms></coordination_settings>
     <raft_configuration>
-      <server><id>1</id><hostname>10.20.1.11</hostname><port>9234</port></server>
-      <server><id>2</id><hostname>10.20.1.12</hostname><port>9234</port></server>
-      <server><id>3</id><hostname>10.20.1.13</hostname><port>9234</port></server>
+{% for host in groups['clickhouse'] %}
+      <server><id>{{ hostvars[host].server_ordinal }}</id><hostname>{{ hostvars[host].private_ip }}</hostname><port>9234</port></server>
+{% endfor %}
     </raft_configuration>
   </keeper_server>
   <macros><shard>01</shard><replica>node-{{ server_ordinal }}</replica></macros>
   <default_replica_path>/clickhouse/tables/{uuid}/{shard}</default_replica_path>
   <default_replica_name>{replica}</default_replica_name>
+  <timezone>UTC</timezone>
+  <query_log><ttl>event_date + INTERVAL 30 DAY DELETE</ttl></query_log>
+  <part_log><ttl>event_date + INTERVAL 30 DAY DELETE</ttl></part_log>
+  <error_log><ttl>event_date + INTERVAL 30 DAY DELETE</ttl></error_log>
+  <trace_log remove="1"/>
+  <text_log remove="1"/>
+  <opentelemetry_span_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <metric_log remove="1"/>
+  <latency_log remove="1"/>
 </clickhouse>

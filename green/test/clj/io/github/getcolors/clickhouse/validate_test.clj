@@ -37,3 +37,9 @@
 (deftest external-key-allows-agent-and-managed-mode-needs-no-path
   (is (= [] (validate/state-errors (dissoc base :ssh-private-key-path))))
   (is (= [] (validate/state-errors (dissoc base :ssh-private-key-path :hcloud-ssh-keys)))))
+
+(deftest backup-never-shares-remote-state-or-unsafe-prefix
+  (let [opts (assoc base :clickhouse-storage-managed true :clickhouse-backup-region "us-east-1" :clickhouse-backup-bucket "test-state")]
+    (is (some #{":clickhouse-backup-bucket must not be the OpenTofu state bucket"} (validate/state-errors opts)))
+    (is (some #{":clickhouse-backup-prefix must contain safe nonempty path segments"} (validate/state-errors (assoc opts :clickhouse-backup-bucket "separate-backup" :clickhouse-backup-prefix "../bad"))))
+    (is (= [] (validate/state-errors (assoc opts :clickhouse-backup-bucket "separate-backup"))))))

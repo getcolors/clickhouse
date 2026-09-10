@@ -42,3 +42,10 @@ def test_metabase_encryption_key_has_a_minimum_length():
     opts = {**base, **{key: "long-enough-secret" for key in validate.own_secrets}}
     errors = validate.secret_errors({**opts, "metabase-encryption-secret-key": "short"})
     assert any("at least 16" in e for e in errors)
+
+
+def test_backup_never_shares_remote_state_or_unsafe_prefix():
+    opts = {**base, 'clickhouse-storage-managed': True, 'clickhouse-backup-region': 'us-east-1', 'clickhouse-backup-bucket': 'states'}
+    assert ':clickhouse-backup-bucket must not be the OpenTofu state bucket' in validate.state_errors(opts)
+    assert ':clickhouse-backup-prefix must contain safe nonempty path segments' in validate.state_errors({**opts, 'clickhouse-backup-bucket': 'separate-backup', 'clickhouse-backup-prefix': '../bad'})
+    assert validate.state_errors({**opts, 'clickhouse-backup-bucket': 'separate-backup'}) == []

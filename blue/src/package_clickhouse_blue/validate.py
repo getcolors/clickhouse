@@ -89,8 +89,26 @@ def _pr_str(value) -> str:
     return str(value)
 
 
+def storage_errors(opts):
+    errors = []
+    if opts.get('clickhouse-storage-managed') not in (None, True, False):
+        errors.append(':clickhouse-storage-managed must be true or false')
+    if opts.get('clickhouse-storage-managed') is True or opts.get('clickhouse-backup-bucket'):
+        bucket = opts.get('clickhouse-backup-bucket')
+        if not isinstance(bucket, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', bucket):
+            errors.append(':clickhouse-backup-bucket must be a valid S3 bucket name')
+        if not isinstance(opts.get('clickhouse-backup-region'), str) or not re.fullmatch(r'[a-z]{2}(?:-[a-z]+)+-[0-9]', opts['clickhouse-backup-region']):
+            errors.append(':clickhouse-backup-region must be an AWS region')
+        if bucket == opts.get('s3-bucket') or bucket == opts.get('r2-bucket'):
+            errors.append(':clickhouse-backup-bucket must not be the OpenTofu state bucket')
+        prefix = opts.get('clickhouse-backup-prefix', opts.get('profile', '') + '/clickhouse')
+        if not isinstance(prefix, str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*', prefix):
+            errors.append(':clickhouse-backup-prefix must contain safe nonempty path segments')
+    return errors
+
+
 def state_errors(opts: dict) -> list[str]:
-    errors: list[str] = []
+    errors: list[str] = storage_errors(opts)
     for key in _missing(opts, [*own_required, *_slot_keys(opts, "required")]):
         errors.append(f":{key} is required")
     for slot in slots:

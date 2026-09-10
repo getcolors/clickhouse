@@ -1,0 +1,258 @@
+{
+  "output": {
+    "params": {
+      "value": {
+        "network_cidr": "${aws_vpc.network.cidr_block}",
+        "provider": "aws",
+        "role_firewall_ids": "${ { for role, group in aws_security_group.role : role => group.id } }",
+        "subnet_id": "${aws_subnet.public.id}",
+        "vpc_id": "${aws_vpc.network.id}"
+      }
+    }
+  },
+  "provider": {
+    "aws": {
+      "region": "us-east-1"
+    }
+  },
+  "resource": {
+    "aws_internet_gateway": {
+      "gateway": {
+        "tags": {
+          "Name": "clickhouse-fixture"
+        },
+        "vpc_id": "${aws_vpc.network.id}"
+      }
+    },
+    "aws_route": {
+      "internet": {
+        "destination_cidr_block": "0.0.0.0/0",
+        "gateway_id": "${aws_internet_gateway.gateway.id}",
+        "route_table_id": "${aws_route_table.public.id}"
+      }
+    },
+    "aws_route_table": {
+      "public": {
+        "tags": {
+          "Name": "clickhouse-fixture"
+        },
+        "vpc_id": "${aws_vpc.network.id}"
+      }
+    },
+    "aws_route_table_association": {
+      "public": {
+        "route_table_id": "${aws_route_table.public.id}",
+        "subnet_id": "${aws_subnet.public.id}"
+      }
+    },
+    "aws_security_group": {
+      "role": {
+        "description": "Deployment role access",
+        "for_each": {
+          "clickhouse": "clickhouse-fixture-clickhouse-firewall",
+          "metabase": "clickhouse-fixture-metabase-firewall"
+        },
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "name": "${each.value}",
+        "tags": {
+          "Name": "${each.value}"
+        },
+        "vpc_id": "${aws_vpc.network.id}"
+      }
+    },
+    "aws_subnet": {
+      "public": {
+        "availability_zone": "us-east-1a",
+        "cidr_block": "10.78.1.0/24",
+        "map_public_ip_on_launch": true,
+        "tags": {
+          "Name": "clickhouse-fixture"
+        },
+        "vpc_id": "${aws_vpc.network.id}"
+      }
+    },
+    "aws_vpc": {
+      "network": {
+        "cidr_block": "10.78.0.0/16",
+        "enable_dns_hostnames": true,
+        "enable_dns_support": true,
+        "tags": {
+          "Name": "clickhouse-fixture"
+        }
+      }
+    },
+    "aws_vpc_security_group_egress_rule": {
+      "egress": {
+        "cidr_ipv4": "0.0.0.0/0",
+        "for_each": {
+          "clickhouse": "clickhouse-fixture-clickhouse-firewall",
+          "metabase": "clickhouse-fixture-metabase-firewall"
+        },
+        "ip_protocol": "-1",
+        "security_group_id": "${aws_security_group.role[each.key].id}"
+      }
+    },
+    "aws_vpc_security_group_ingress_rule": {
+      "ingress": {
+        "cidr_ipv4": "${each.value.cidr}",
+        "for_each": {
+          "clickhouse:peer-8123:peer:metabase-0": {
+            "cidr": "10.78.1.13/32",
+            "from_port": 8123,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 8123
+          },
+          "clickhouse:peer-9000:peer:clickhouse-0": {
+            "cidr": "10.78.1.10/32",
+            "from_port": 9000,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9000
+          },
+          "clickhouse:peer-9000:peer:clickhouse-1": {
+            "cidr": "10.78.1.11/32",
+            "from_port": 9000,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9000
+          },
+          "clickhouse:peer-9000:peer:clickhouse-2": {
+            "cidr": "10.78.1.12/32",
+            "from_port": 9000,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9000
+          },
+          "clickhouse:peer-9000:peer:metabase-0": {
+            "cidr": "10.78.1.13/32",
+            "from_port": 9000,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9000
+          },
+          "clickhouse:peer-9009:peer:clickhouse-0": {
+            "cidr": "10.78.1.10/32",
+            "from_port": 9009,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9009
+          },
+          "clickhouse:peer-9009:peer:clickhouse-1": {
+            "cidr": "10.78.1.11/32",
+            "from_port": 9009,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9009
+          },
+          "clickhouse:peer-9009:peer:clickhouse-2": {
+            "cidr": "10.78.1.12/32",
+            "from_port": 9009,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9009
+          },
+          "clickhouse:peer-9181:peer:clickhouse-0": {
+            "cidr": "10.78.1.10/32",
+            "from_port": 9181,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9181
+          },
+          "clickhouse:peer-9181:peer:clickhouse-1": {
+            "cidr": "10.78.1.11/32",
+            "from_port": 9181,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9181
+          },
+          "clickhouse:peer-9181:peer:clickhouse-2": {
+            "cidr": "10.78.1.12/32",
+            "from_port": 9181,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9181
+          },
+          "clickhouse:peer-9234:peer:clickhouse-0": {
+            "cidr": "10.78.1.10/32",
+            "from_port": 9234,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9234
+          },
+          "clickhouse:peer-9234:peer:clickhouse-1": {
+            "cidr": "10.78.1.11/32",
+            "from_port": 9234,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9234
+          },
+          "clickhouse:peer-9234:peer:clickhouse-2": {
+            "cidr": "10.78.1.12/32",
+            "from_port": 9234,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 9234
+          },
+          "clickhouse:ping:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": -1,
+            "protocol": "icmp",
+            "role": "clickhouse",
+            "to_port": -1
+          },
+          "clickhouse:ssh:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": 22,
+            "protocol": "tcp",
+            "role": "clickhouse",
+            "to_port": 22
+          },
+          "clickhouse:wireguard:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": 51820,
+            "protocol": "udp",
+            "role": "clickhouse",
+            "to_port": 51820
+          },
+          "metabase:ping:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": -1,
+            "protocol": "icmp",
+            "role": "metabase",
+            "to_port": -1
+          },
+          "metabase:ssh:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": 22,
+            "protocol": "tcp",
+            "role": "metabase",
+            "to_port": 22
+          },
+          "metabase:wireguard:0.0.0.0/0": {
+            "cidr": "0.0.0.0/0",
+            "from_port": 51820,
+            "protocol": "udp",
+            "role": "metabase",
+            "to_port": 51820
+          }
+        },
+        "from_port": "${each.value.from_port}",
+        "ip_protocol": "${each.value.protocol}",
+        "security_group_id": "${aws_security_group.role[each.value.role].id}",
+        "to_port": "${each.value.to_port}"
+      }
+    }
+  },
+  "terraform": {
+    "required_providers": {
+      "aws": {
+        "source": "hashicorp/aws",
+        "version": "6.31.0"
+      }
+    },
+    "required_version": ">= 1.8.0"
+  }
+}

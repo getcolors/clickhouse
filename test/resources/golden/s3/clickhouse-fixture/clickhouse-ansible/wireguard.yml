@@ -80,6 +80,8 @@
         mode: "0600"
         content: |
           [Interface]
+          # EC2 jumbo ENIs do not imply a jumbo Internet path for encrypted UDP.
+          MTU = 1420
           Address = {{ vpn_ip }}/24
           ListenPort = 51820
           PrivateKey = {{ wg_private_key.content | b64decode | trim }}
@@ -142,6 +144,8 @@
         mode: "0600"
         content: |
           [Interface]
+          # EC2 jumbo ENIs do not imply a jumbo Internet path for encrypted UDP.
+          MTU = 1420
           Address = 10.21.0.254/32
           PrivateKey = {{ local_wg_private.content | b64decode | trim }}
           {% for host in groups['managed'] %}

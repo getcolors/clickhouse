@@ -16,3 +16,10 @@ def test_delete_reads_state_and_cleans_application_before_compute():
     assert workflow.wire_fn('clickhouse/start', opts)[1:] == ('clickhouse/load-infrastructure',)
     assert workflow.wire_fn('clickhouse/ansible-cleanup', opts)[1:] == ('clickhouse/ansible-local',)
     assert workflow.wire_fn('clickhouse/dns', opts)[1:] == ('clickhouse/infrastructure',)
+
+
+def test_managed_storage_order_and_retired_backend_retry():
+    opts = {'blue/event': 'delete', 'clickhouse-storage-managed': True, 's3-bucket-mode': 'managed'}
+    assert workflow.wire_fn('clickhouse/dns', opts)[1:] == ('clickhouse/storage',)
+    assert workflow.wire_fn('clickhouse/storage', opts)[1:] == ('clickhouse/infrastructure',)
+    assert workflow.wire_fn('clickhouse/infrastructure', opts)[1:] == ('clickhouse/backend-finalize',)
