@@ -50,7 +50,7 @@
 ;; cannot resolve its own library says so rather than inventing a SHA or
 ;; silently falling back to whatever is lying around. `bb pin` refuses to stamp
 ;; a dirty or unpushed HEAD for the same reason.
-(def ^:private clickhouse-sha "990e3d17fe92f3b31b95ef66097175ca6c6853cb")
+(def ^:private clickhouse-sha "18ea94a3abd1dd8445eac1ea4e52bfcacd6ce321")
 
 (def ^:private clickhouse-git-url "https://github.com/getcolors/clickhouse.git")
 (def ^:private once-git-url "https://github.com/getcolors/once.git")
