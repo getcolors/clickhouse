@@ -36,7 +36,7 @@ import { homedir } from "node:os";
 // directory, which would halt Bun's upward resolution of `package-clickhouse-red`
 // and break the development symlink at red/red.
 const PINS = {
-  "package-clickhouse-red": "github:getcolors/clickhouse#b3ebf393442d0a2e0d3bf5e2967cc1f59bab6d31",
+  "package-clickhouse-red": "github:getcolors/clickhouse#85691397d46f92d9fe11ce56049e4d52ddb9e758",
   "package-once-red": "github:getcolors/once#98d3cfa2c743b89a72bac0252c258f9edeedcad7",
   // The Red SDK is a peer of colors-compute-red, not a dependency: a cold
   // cache installs nothing for a peer, so the consumer pins it explicitly, at
