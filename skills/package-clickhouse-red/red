@@ -38,6 +38,10 @@ import { homedir } from "node:os";
 const PINS = {
   "package-clickhouse-red": "github:getcolors/clickhouse#b3ebf393442d0a2e0d3bf5e2967cc1f59bab6d31",
   "package-once-red": "github:getcolors/once#98d3cfa2c743b89a72bac0252c258f9edeedcad7",
+  // The Red SDK is a peer of colors-compute-red, not a dependency: a cold
+  // cache installs nothing for a peer, so the consumer pins it explicitly, at
+  // the commit red/package.json pins. scripts/launcher.sh checks they agree.
+  "red": "github:getcolors/red#db9bfe61282e2093f4098bf5a6ee0cd10added6e",
 };
 
 // PINS is the only source of versions, as green's inline SHA and blue's PEP
